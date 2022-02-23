@@ -90,7 +90,8 @@ namespace SweetMaker {
 
     RotationQuaternion_16384* offsetRotation = NULL;
     RotationQuaternion_16384 rotQuat;
-		int16_t linearAccel[3];
+    RotationQuaternion_16384 rotQuatDelta;
+    int16_t linearAccel[3];
 
 #define MOTION_SENSOR_SCALE_FACTOR_U_SS (599)
 

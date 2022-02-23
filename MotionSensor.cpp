@@ -99,6 +99,12 @@ int MotionSensor::init(CALIBRATION * calibration)
 
 	mpu6050.setDMPEnabled(true);
 
+  /* The Delta Quarternion is initialised thus with a zero real part */
+  rotQuatDelta.r = 0;
+  rotQuatDelta.x = 0;
+  rotQuatDelta.y = 0;
+  rotQuatDelta.z = 16384;
+
 	eventHandler = EventMngr::getMngr();
 	eventHandler->handleEvent(MotionSensor::MOTION_SENSOR_READY, 0, 0);
 
@@ -149,14 +155,29 @@ void MotionSensor::update(uint16_t elapsedTime_ms)
 
 	mpu6050.dmpGetQuaternion(raw_quarternion, fifoBuffer);
 
-	rotQuat.r = raw_quarternion[0];
-	rotQuat.x = raw_quarternion[1];
-	rotQuat.y = raw_quarternion[2];
-	rotQuat.z = raw_quarternion[3];
+  RotationQuaternion_16384 newRq;
 
-	if (offsetRotation != NULL) {
-    rotQuat.crossProduct(offsetRotation);
-	}
+  newRq.r = raw_quarternion[0];
+  newRq.x = raw_quarternion[1];
+  newRq.y = raw_quarternion[2];
+  newRq.z = raw_quarternion[3];
+
+  if (offsetRotation != NULL) {
+    newRq.crossProduct(offsetRotation);
+  }
+
+  rotQuatDelta.r = newRq.r;
+  rotQuatDelta.x = newRq.x;
+  rotQuatDelta.y = newRq.y;
+  rotQuatDelta.z = newRq.z;
+
+  rotQuat.conjugate();
+  rotQuatDelta.crossProduct(&rotQuat);
+  
+  rotQuat.r = newRq.r;
+  rotQuat.x = newRq.x;
+  rotQuat.y = newRq.y;
+  rotQuat.z = newRq.z;
 
 	/*
 	 * Notify system a new sample is available
