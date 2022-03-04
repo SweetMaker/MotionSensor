@@ -47,26 +47,25 @@ void Quaternion_16384::crossProduct(Quaternion_16384 * s)
 	int32_t _y = ((int32_t)y * (int32_t)s->r) + ((int32_t)z * (int32_t)s->x) + ((int32_t)r * (int32_t)s->y) - ((int32_t)x * (int32_t)s->z);
 	int32_t _z = ((int32_t)z * (int32_t)s->r) - ((int32_t)y * (int32_t)s->x) + ((int32_t)x * (int32_t)s->y) + ((int32_t)r * (int32_t)s->z);
 
-	this->r = (int16_t)(_r / unit_scale_factor);
-	this->x = (int16_t)(_x / unit_scale_factor);
-	this->y = (int16_t)(_y / unit_scale_factor);
-	this->z = (int16_t)(_z / unit_scale_factor);
+  this->r = asr(_r, 14);
+  this->x = asr(_x, 14);
+  this->y = asr(_y, 14);
+  this->z = asr(_z, 14);
 }
 
 /*
  * dotProduct:: The dot product is cos(t) where t is the angle between 
  *              two 4D quaternions
  */
-int32_t Quaternion_16384::dotProduct(Quaternion_16384 * q) 
+int16_t Quaternion_16384::dotProduct(Quaternion_16384 * q) 
 {
 	int32_t ret_val;
 	ret_val = (int32_t)x*(int32_t)q->x;
 	ret_val += (int32_t)y*(int32_t)q->y;
 	ret_val += (int32_t)z*(int32_t)q->z;
 	ret_val += (int32_t)r*(int32_t)q->r;
-	ret_val /= unit_scale_factor;
 
-	return ((uint32_t)ret_val);
+	return (asr(ret_val, 14));
 }
 
 /*
@@ -225,14 +224,27 @@ int16_t RotationQuaternion_16384::getSinRotY()
 /*
 * getSinRotZ: returns sin(theta) * 16384 where theta is rotation about z
 *
-* Note: for sensors without magnometers this will drift because it has 
+* Note: for sensors without magnometers this will drift because it has
 *       no absolute reference (unlike X & Y which have gravity)
 */
 int16_t RotationQuaternion_16384::getSinRotZ()
 {
-	Quaternion_16384 qx(0, 16384, 0, 0);
-	rotate(&qx);
-	return (qx.y);
+  Quaternion_16384 qx(0, 16384, 0, 0);
+  rotate(&qx);
+  return (qx.y);
+}
+
+/*
+* getCosRotZ: returns cos(theta) * 16384 where theta is rotation about z
+*
+* Note: for sensors without magnometers this will drift because it has
+*       no absolute reference (unlike X & Y which have gravity)
+*/
+int16_t RotationQuaternion_16384::getCosRotZ()
+{
+  Quaternion_16384 qx(0, 16384, 0, 0);
+  rotate(&qx);
+  return (qx.x);
 }
 
 /*
@@ -268,6 +280,34 @@ int16_t RotationQuaternion_16384::getRotZ()
 	return (int16_t)rotZ;
 }
 
+void RotationQuaternion_16384::getGravity(Quaternion_16384* gq)
+{
+  gq->r = 0;
+
+  int32_t gx = 2 * (((int32_t)x * (int32_t)z) - ((int32_t)r * (int32_t)y));
+  gq->x = asr(gx, 14);
+
+  int32_t gy = 2 * (((int32_t)r * (int32_t)x) + ((int32_t)y * (int32_t)z));
+  gq->y = asr(gy, 14);
+
+  int32_t gz = ((int32_t)r * (int32_t)r) - ((int32_t)x * (int32_t)x) - ((int32_t)y * (int32_t)y) + ((int32_t)z * (int32_t)z);
+  gq->z = asr(gz, 14);
+
+  return;
+}
+
+void RotationQuaternion_16384::findOffsetRotation(Quaternion_16384 * first, Quaternion_16384 * second)
+{
+  *this = { first->r, first->x, first->y, first->z };
+   int16_t _r = dotProduct(second);
+
+    crossProduct(second);
+    r = _r;
+
+    r += 16384;
+    normalize();
+}
+
 
 #ifdef ARDUINO
 #include "Arduino.h"
@@ -278,4 +318,23 @@ void Quaternion_16384::printQ(void)
   Serial.print(this->y); Serial.print("\t");
   Serial.println(this->z);
 }
+#else
+#include <stdio.h>
+void Quaternion_16384::printQ(void)
+{
+  printf("%d\t%d\t%d\t\%d\n", this->r, this->x, this->y, this->z);
+ }
+
 #endif
+
+/*
+ * Arithmetic Shift Right for signed integers
+ */
+int16_t Quaternion_16384::asr(int32_t value, uint8_t amount)
+{
+  if (value < 0)
+  {
+    return (int16_t)(-(-value >> amount));
+  }
+  return (int16_t)(value >> amount);
+}
