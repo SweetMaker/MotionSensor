@@ -3,7 +3,7 @@ MotionSensor.cpp takes an mpu6050 class and manages configuration and control
                  while integrating it into the SweetMaker framework. Presents 
 				 the output from the sensor as a SM::Quaternion_16384
 
-Copyright(C) 2017-2019  Howard James May
+Copyright(C) 2017-2021  Howard James May
 
 This file is part of the SweetMaker SDK
 
@@ -30,7 +30,7 @@ Release     Date                        Change Description
                      - addition of calibration routine
 					           - use of SM::Quaternion_16384 for processing
 					           - addition of rotation offset
-3      22-May-2019   Fixed calibration routine
+3      07-Mar-2021   Fixed calibration routine
                      - fixed rotation offset / autoLevel
 *******************************************************************************/
 
@@ -63,8 +63,6 @@ int MotionSensor::init()
 
 int MotionSensor::init(CALIBRATION * calibration)
 {
-  memset(this, 0, sizeof(MotionSensor));
-
   uint8_t retVal;
 	/*
 	 * Start the Wire library - used to communicate with MPU6050
@@ -80,10 +78,6 @@ int MotionSensor::init(CALIBRATION * calibration)
     #endif
 #endif
 
-	/*
-	 * Initialize MPU6050 Chip - returns void
-	 */
-	mpu6050.initialize();
 
 	// verify connection
 	if (mpu6050.testConnection() != true) {
@@ -91,7 +85,12 @@ int MotionSensor::init(CALIBRATION * calibration)
 		return -1;
 	}
 
-	// Configure DMP processor
+/*
+ * Initialize MPU6050 Chip - returns void
+ */
+  mpu6050.initialize();
+
+  // Configure DMP processor
 	retVal = mpu6050.dmpInitialize();
 	if (retVal != 0) {
 		// 1 = initial memory load failed
