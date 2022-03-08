@@ -3,7 +3,7 @@
                  and how to use Quaternions for robust and efficient motion
                  processing
 
-  Copyright(C) 2021  Howard James May
+  Copyright(C) 2022  Howard James May
 
   This file is part of the SweetMaker SDK
 
@@ -25,7 +25,7 @@
 ********************************************************************************
 Release     Date                        Change Description
 --------|-------------|--------------------------------------------------------|
-   1      07-Mar-2021   Initial release
+   1      07-Mar-2022   Initial release
 *******************************************************************************/
 
 #include <Wire.h>
@@ -404,13 +404,26 @@ void handleSerialInput()
      * Here we autolevel and also apply a 45 degree rotation offset.
      */
   case 'z':
+  {
     Serial.println("Self Leveling + Z Rotation of 45 degrees");
 
-    motionSensor.autoLevel();
+    float rotation_z = 45;
 
-    RotationQuaternion_16384 rotZ((float)45, 0, 0, 16384);
-    motionSensor.rotQuat.crossProduct(&rotZ);
-    break;
+    Quaternion_16384 gravity;
+    RotationQuaternion_16384 offsetQ;
+
+    RotationQuaternion_16384 rotZ(rotation_z, 0, 0, 16384);
+    Quaternion_16384 zAxis(0, 0, 0, 16384);
+
+    motionSensor.clearOffsetRotation();
+    motionSensor.rotQuat.getGravity(&gravity);
+
+    offsetQ.findOffsetRotation(&zAxis, &gravity);
+    offsetQ.crossProduct(&rotZ);
+
+    motionSensor.setOffsetRotation(&offsetQ);
+  }
+  break;
 
   default:
     break;
