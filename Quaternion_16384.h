@@ -47,10 +47,11 @@ namespace SweetMaker {
 		Quaternion_16384(Quaternion_16384 * q);
 
 		void crossProduct(Quaternion_16384 * q);
-		int32_t dotProduct(Quaternion_16384 * q);
+		int16_t dotProduct(Quaternion_16384 * q);
 		void conjugate();
 		void normalize();
     void printQ(void);
+    static int16_t asr(int32_t value, uint8_t amount);
 
 
 		uint32_t getMagnitude();
@@ -67,10 +68,14 @@ namespace SweetMaker {
 		RotationQuaternion_16384(float angle, int16_t x, int16_t y, int16_t z);
 
 		void rotate(Quaternion_16384 * q);
+    void getGravity(Quaternion_16384* gq);
+    void findOffsetRotation(Quaternion_16384* first, Quaternion_16384 * second);
 
 		int16_t getSinRotX();
 		int16_t getSinRotY();
-		int16_t getSinRotZ();
+    int16_t getSinRotZ();
+
+    int16_t getCosRotZ();
 
 		int16_t getRotX();
 		int16_t getRotY();

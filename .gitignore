@@ -1,0 +1,18 @@
+# Ignore everything
+*
+
+# But do include these files
+!README.md
+!LICENSE
+!.gitignore
+!.c
+!.cpp
+!.h
+!.txt
+!Examples
+!Examples/Tutorial
+!Examples/Tutorial/*.ino
+!Examples/MotionSensorTest
+!Examples/MotionSensorTest/*.ino
+!Examples/MotionSensorTest/*.h
+!Examples/MotionSensorTest/*.cpp

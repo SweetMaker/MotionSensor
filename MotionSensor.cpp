@@ -3,7 +3,7 @@ MotionSensor.cpp takes an mpu6050 class and manages configuration and control
                  while integrating it into the SweetMaker framework. Presents 
 				 the output from the sensor as a SM::Quaternion_16384
 
-Copyright(C) 2017-2019  Howard James May
+Copyright(C) 2017-2021  Howard James May
 
 This file is part of the SweetMaker SDK
 
@@ -28,9 +28,10 @@ Release     Date                        Change Description
 1      13-Sep-2017   Initial release
 2      03-May-2019   Major updates including:
                      - addition of calibration routine
-					 - use of SM::Quaternion_16384 for processing
-					 - addition of rotation offset
-3      22-May-2019   Fixed calibration routine
+					           - use of SM::Quaternion_16384 for processing
+					           - addition of rotation offset
+3      07-Mar-2021   Fixed calibration routine
+                     - fixed rotation offset / autoLevel
 *******************************************************************************/
 
 #include <Arduino.h>
@@ -44,6 +45,9 @@ MotionSensor::MotionSensor()
 {
 };
 
+/*
+ * init - sets to known values
+ */
 int MotionSensor::init()
 {
 	CALIBRATION cal;
@@ -74,10 +78,6 @@ int MotionSensor::init(CALIBRATION * calibration)
     #endif
 #endif
 
-	/*
-	 * Initialize MPU6050 Chip - returns void
-	 */
-	mpu6050.initialize();
 
 	// verify connection
 	if (mpu6050.testConnection() != true) {
@@ -85,7 +85,12 @@ int MotionSensor::init(CALIBRATION * calibration)
 		return -1;
 	}
 
-	// Configure DMP processor
+/*
+ * Initialize MPU6050 Chip - returns void
+ */
+  mpu6050.initialize();
+
+  // Configure DMP processor
 	retVal = mpu6050.dmpInitialize();
 	if (retVal != 0) {
 		// 1 = initial memory load failed
@@ -99,13 +104,26 @@ int MotionSensor::init(CALIBRATION * calibration)
 
 	mpu6050.setDMPEnabled(true);
 
+  /* The Delta Quarternion is initialised thus with a zero real part */
+  rotQuatDelta.r = 0;
+  rotQuatDelta.x = 0;
+  rotQuatDelta.y = 0;
+  rotQuatDelta.z = 16384;
+
+  /*
+   * Send indication that sensor is now ready
+   */
 	eventHandler = EventMngr::getMngr();
 	eventHandler->handleEvent(MotionSensor::MOTION_SENSOR_READY, 0, 0);
 
 	return 0;
 }
 
-
+/*
+ * configEventHandler - sets the callback for generated events.
+ *                      Consider registering your eventHandler with 
+ *                      the EventMngr:: instead
+ */
 void MotionSensor::configEventHandler(IEventHandler *eh)
 {
 	eventHandler = eh;
@@ -149,14 +167,40 @@ void MotionSensor::update(uint16_t elapsedTime_ms)
 
 	mpu6050.dmpGetQuaternion(raw_quarternion, fifoBuffer);
 
-	rotQuat.r = raw_quarternion[0];
-	rotQuat.x = raw_quarternion[1];
-	rotQuat.y = raw_quarternion[2];
-	rotQuat.z = raw_quarternion[3];
+  /*
+   * The MPU6050 returns a rotational quaternion
+   */
+  RotationQuaternion_16384 newRq;
 
-	if (offsetRotation != NULL) {
-    rotQuat.crossProduct(offsetRotation);
-	}
+  newRq.r = raw_quarternion[0];
+  newRq.x = raw_quarternion[1];
+  newRq.y = raw_quarternion[2];
+  newRq.z = raw_quarternion[3];
+
+  /*
+   * If there is an offsetRotation configured then this is 
+   * applied using a crossProduct
+   */
+  if (offsetRotation != NULL) {
+    newRq.crossProduct(offsetRotation);
+  }
+
+  /*
+   * Delta is calculated by taking the conjugate of the old rotation 
+   * and removing if from the new. This is effectively a subtraction
+   */
+  rotQuatDelta.r = newRq.r;
+  rotQuatDelta.x = newRq.x;
+  rotQuatDelta.y = newRq.y;
+  rotQuatDelta.z = newRq.z;
+
+  rotQuat.conjugate();
+  rotQuatDelta.crossProduct(&rotQuat);
+  
+  rotQuat.r = newRq.r;
+  rotQuat.x = newRq.x;
+  rotQuat.y = newRq.y;
+  rotQuat.z = newRq.z;
 
 	/*
 	 * Notify system a new sample is available
@@ -166,7 +210,6 @@ void MotionSensor::update(uint16_t elapsedTime_ms)
 
 	return;
 }
-
 
 /*
  * readingAvailable - checks whether a new reading is available from the MPU
@@ -179,7 +222,10 @@ bool MotionSensor::readingAvailable()
 	return (false);
 }
 
-
+/*
+ * takeSamples simply gets lots of sample values, sums them and returns the
+ * average - this is used as part of calibration
+ */
 void MotionSensor::takeSamples(SAMPLE_AVGS * sampleAvgs, uint16_t numSamples) {
 	long sum_ax = 0, sum_ay = 0, sum_az = 0, sum_gx = 0, sum_gy = 0, sum_gz = 0;
 	int16_t ax, ay, az, gx, gy, gz;
@@ -206,7 +252,10 @@ void MotionSensor::takeSamples(SAMPLE_AVGS * sampleAvgs, uint16_t numSamples) {
 	sampleAvgs->gyroZAvg = sum_gz / numSamples;
 }
 
-
+/*
+ * runSelfCalibrate - iteratively conveges on a set of calibration 
+ *                    values by trying values and slowly modifying them
+ */
 int MotionSensor::runSelfCalibrate(CALIBRATION * calibration) {
 	SAMPLE_AVGS sample_avgs;
 	const uint16_t num_samples = 1000;     //Amount of readings used to average, make it higher to get more precision but sketch will be slower  (default:1000)
@@ -317,18 +366,45 @@ int MotionSensor::runSelfCalibrate(CALIBRATION * calibration) {
 	return(0);
 }
 
+/*
+ * autoLevel - this finds the rotationOffset needed to adjust an MPU6050
+ *             which is not level (with Z upwards) so that it behaves as if it is.
+ *
+ *             This is achieved by finding gravity and calculating the rotation
+ *             from this to the Z axis.
+ */
+void MotionSensor::autoLevel()
+{
+  if (offsetRotation)
+    clearOffsetRotation();
 
+  RotationQuaternion_16384 offsetQ;
+  Quaternion_16384 zAxis(0,0,0,16384);
+  Quaternion_16384 gq;
+
+  rotQuat.getGravity(&gq);
+  offsetQ.findOffsetRotation(&zAxis, &gq);
+
+  setOffsetRotation(&offsetQ);
+}
+
+/*
+ * setOffsetRotation - configures new offset rotation to given value
+ *                     this also updates current rotation
+ */
 void MotionSensor::setOffsetRotation(RotationQuaternion_16384 * input)
 {
 	if (offsetRotation)
 		clearOffsetRotation();
 
-	Serial.println("Setting Offset Rotation");
 	offsetRotation = new RotationQuaternion_16384(input);
 	rotQuat.crossProduct(offsetRotation);
 }
 
-
+/*
+ * clearOffsetRotation - clears offset rotation
+ *                       also clears current offset
+ */
 void MotionSensor::clearOffsetRotation()
 {
 	if (offsetRotation)	{
@@ -339,7 +415,9 @@ void MotionSensor::clearOffsetRotation()
 	}
 }
 
-
+/*
+ * setCalibration - sets calibration values in MPU6050
+ */
 void MotionSensor::setCalibration(CALIBRATION * calibration)
 {
 	// Set Offsets for this chip instance
