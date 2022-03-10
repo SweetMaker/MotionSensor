@@ -205,9 +205,9 @@ void RotationQuaternion_16384::rotate(Quaternion_16384 * subject_quat)
 */
 int16_t RotationQuaternion_16384::getSinRotX()
 {
-	Quaternion_16384 qy(0, 0, 16384, 0);
-	rotate(&qy);
-	return (qy.z);
+  int32_t gy = 2 * (((int32_t)r * (int32_t)x) + ((int32_t)y * (int32_t)z));
+  gy = asr(gy, 14);
+	return (gy);
 }
 
 /*
@@ -216,9 +216,9 @@ int16_t RotationQuaternion_16384::getSinRotX()
 */
 int16_t RotationQuaternion_16384::getSinRotY()
 {
-	Quaternion_16384 qx(0, 16384, 0, 0);
-	rotate(&qx);
-	return (qx.z);
+  int32_t gx = 2 * (((int32_t)x * (int32_t)z) - ((int32_t)r * (int32_t)y));
+  gx = asr(gx, 14);
+  return(gx);
 }
 
 /*

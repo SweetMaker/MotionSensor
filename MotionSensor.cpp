@@ -111,6 +111,14 @@ int MotionSensor::init(CALIBRATION * calibration)
   rotQuatDelta.z = 16384;
 
   /*
+   * Set gravity to sane, though incorrect value!
+   */
+  gravity.r = 0;
+  gravity.x = 0;
+  gravity.y = 0;
+  gravity.z = 16384;
+
+  /*
    * Send indication that sensor is now ready
    */
 	eventHandler = EventMngr::getMngr();
@@ -201,6 +209,11 @@ void MotionSensor::update(uint16_t elapsedTime_ms)
   rotQuat.x = newRq.x;
   rotQuat.y = newRq.y;
   rotQuat.z = newRq.z;
+
+  /*
+   * Now calculate gravity
+   */
+  rotQuat.getGravity(&gravity);
 
 	/*
 	 * Notify system a new sample is available
