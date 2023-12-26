@@ -63,6 +63,8 @@ int MotionSensor::init()
 
 int MotionSensor::init(CALIBRATION * calibration)
 {
+  Serial.println("MotionSensor::init");
+
   uint8_t retVal;
 	/*
 	 * Start the Wire library - used to communicate with MPU6050
@@ -72,18 +74,24 @@ int MotionSensor::init(CALIBRATION * calibration)
 	TWBR = 24; // 400kHz I2C clock (200kHz if CPU is 8MHz)
 #else 
     #ifdef ARDUINO_ARCH_ESP32
+        Serial.println("MotionSensor::Wire begin");
+
         Wire.begin(21, 22, 400000L);
     #else
         #pragma message ( "MotionSensor supports either AVR or ESP32 architecures" )
     #endif
 #endif
 
-
+  Serial.println("MotionSensor::testConnection");
+ 
 	// verify connection
 	if (mpu6050.testConnection() != true) {
+		Serial.println("MotionSensor::testConnectionFailure");
 		EventMngr::getMngr()->handleEvent(MotionSensor::MOTION_SENSOR_INIT_ERROR, 0, 3);
 		return -1;
 	}
+
+	Serial.println("Have Connected to Motion Sensor");
 
 /*
  * Initialize MPU6050 Chip - returns void
