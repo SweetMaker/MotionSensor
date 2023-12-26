@@ -128,6 +128,11 @@ namespace SweetMaker {
     RotationQuaternion_16384 rotQuatDelta;
 
     /*
+     * Gravity - offset relative to gravity
+     */
+    Quaternion_16384 gravity;
+
+    /*
      * raw linear acceleration values;
      */
     int16_t linearAccel[3];
