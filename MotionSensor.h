@@ -95,6 +95,7 @@ namespace SweetMaker {
     void autoLevel();
     void setOffsetRotation(RotationQuaternion_16384* q);
     void clearOffsetRotation(); // including autoLevel;
+    void resetHorizontalOrientation();
 
     /*
      * This generates calibration values for MPU6050.
@@ -151,8 +152,7 @@ namespace SweetMaker {
 		}SAMPLE_AVGS;
 
 		void takeSamples(SAMPLE_AVGS * sample_avgs, uint16_t num_samples);
-		void setCalibration(CALIBRATION * calibration);
-	};
+		void setCalibration(CALIBRATION * calibration);        
 }
 #endif
 

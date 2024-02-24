@@ -423,6 +423,13 @@ void MotionSensor::setOffsetRotation(RotationQuaternion_16384 * input)
 }
 
 /*
+ * This adds an additional rotational offset to set rotation about vertical to zero
+ */
+void MotionSensor::resetHorizontalOrientation() {
+}
+
+
+/*
  * clearOffsetRotation - clears offset rotation
  *                       also clears current offset
  */
