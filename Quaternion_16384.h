@@ -25,7 +25,10 @@ Contact me at sweet.maker@outlook.com
 ********************************************************************************
 Release     Date                        Change Description
 --------|-------------|--------------------------------------------------------|
-1      26-Apr-2019   Initial release
+   1      26-Apr-2019   Initial release
+--------|-------------|--------------------------------------------------------|
+						- Added rounding for better accuracy
+   2      25-Feb-2024   - Added getRotationAboutZ
 *******************************************************************************/
 
 #ifndef __QUATERNION_16384_H__
@@ -71,7 +74,7 @@ namespace SweetMaker {
 		void rotate(Quaternion_16384 * q);
         void getGravity(Quaternion_16384* gq);
         void findOffsetRotation(Quaternion_16384* first, Quaternion_16384 * second);
-	    RotationQuaternion_16384 calculateHorizontalOffset();
+	    RotationQuaternion_16384 getRotationAboutZ();
 
 		int16_t getSinRotX();
 		int16_t getSinRotY();

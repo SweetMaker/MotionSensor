@@ -1,3 +1,36 @@
+/*******************************************************************************
+MotionSensor.cpp takes an mpu6050 class and manages configuration and control
+				 while integrating it into the SweetMaker framework. Presents
+				 the output from the sensor as a SM::Quaternion_16384
+
+Copyright(C) 2017-2024  Howard James May
+
+This file is part of the SweetMaker SDK
+
+The SweetMaker SDK is free software: you can redistribute it and / or
+modify it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+The SweetMaker SDK is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.If not, see <http://www.gnu.org/licenses/>.
+
+Contact me at sweet.maker@outlook.com
+
+********************************************************************************
+Release     Date                        Change Description
+--------|-------------|--------------------------------------------------------|
+   1      26-Apr-2019   Initial release
+--------|-------------|--------------------------------------------------------|
+						- Added rounding for better accuracy
+   2      25-Feb-2024   - Added getRotationAboutZ
+*******************************************************************************/
+
 #include "math.h"
 #include "Quaternion_16384.h"
 
@@ -310,7 +343,7 @@ void RotationQuaternion_16384::getGravity(Quaternion_16384* gq)
  */
 void RotationQuaternion_16384::findOffsetRotation(Quaternion_16384 * first, Quaternion_16384 * second)
 {
-  *this = { first->r, first->x, first->y, first->z };
+  *this = (Quaternion_16384){ first->r, first->x, first->y, first->z };
    int16_t _r = dotProduct(second);
 
     crossProduct(second);
@@ -321,9 +354,9 @@ void RotationQuaternion_16384::findOffsetRotation(Quaternion_16384 * first, Quat
 }
 
 /*
- * calculateHorizontalOffset - isolate rotation about z-axis from x and y and return inverse
+ * getRotationAboutZ - isolate rotation about z-axis from x and y
  */
-RotationQuaternion_16384 RotationQuaternion_16384::calculateHorizontalOffset() {
+RotationQuaternion_16384 RotationQuaternion_16384::getRotationAboutZ() {
 	// Calculate the rotation related to just xy tilt by using 'gravity'
 	Quaternion_16384 z_axis(0, 0, 0, 16384);
 	Quaternion_16384 gravity;
@@ -332,15 +365,12 @@ RotationQuaternion_16384 RotationQuaternion_16384::calculateHorizontalOffset() {
 	xy_rot.findOffsetRotation(&gravity, &z_axis);
 
 	// On the assumption that rot_xyz == rot_z * rot_xy
-	// Then inv(rot_xyv) == inv(rot_z * rot_xy) == inv(rot_xy) * inv(rot_z)
-	// Then rot_xy * inv(rot_xyv) == rot_xy * inv(rot_xy) * inv(rot_z)
-	// Cancelling out gives inv(rot_z) == rot_xy * inv(rot_xyz)
-	RotationQuaternion_16384 inv_rot_xyz = this;
-	inv_rot_xyz.conjugate();
-
-	RotationQuaternion_16384 inv_rot_z; 
-	inv_rot_z = Quaternion_16384::crossProduct(&xy_rot, &inv_rot_xyz);
-	return inv_rot_z;
+	// Then rot_xyv * inv(rot_xy) == rot_z * rot_xy *inv(rot_xy) == rot_z
+	
+	xy_rot.conjugate();
+	RotationQuaternion_16384 z_rot; 
+	z_rot = Quaternion_16384::crossProduct(this, &xy_rot);
+	return z_rot;
 }
 
 RotationQuaternion_16384& RotationQuaternion_16384::operator=(const Quaternion_16384& rhs) {

@@ -197,8 +197,13 @@ void MotionSensor::update(uint16_t elapsedTime_ms)
    * If there is an offsetRotation configured then this is 
    * applied using a crossProduct
    */
-  if (offsetRotation != NULL) {
-    newRq.crossProduct(offsetRotation);
+  if (offsetRotation_xy != NULL) {
+	  newRq.crossProduct(offsetRotation_xy);
+  }
+
+  /* Remove horizontal z rotation after */
+  if (offsetRotation_z != NULL) {
+	  newRq = Quaternion_16384::crossProduct(offsetRotation_z, &newRq);
   }
 
   /*
@@ -396,7 +401,7 @@ int MotionSensor::runSelfCalibrate(CALIBRATION * calibration) {
  */
 void MotionSensor::autoLevel()
 {
-  if (offsetRotation)
+  if (offsetRotation_xy)
     clearOffsetRotation();
 
   RotationQuaternion_16384 offsetQ;
@@ -415,17 +420,25 @@ void MotionSensor::autoLevel()
  */
 void MotionSensor::setOffsetRotation(RotationQuaternion_16384 * input)
 {
-	if (offsetRotation)
+	if (offsetRotation_xy)
 		clearOffsetRotation();
 
-	offsetRotation = new RotationQuaternion_16384(input);
-	rotQuat.crossProduct(offsetRotation);
+	offsetRotation_xy = new RotationQuaternion_16384(input);
+	rotQuat.crossProduct(offsetRotation_xy);
 }
 
 /*
  * This adds an additional rotational offset to set rotation about vertical to zero
  */
 void MotionSensor::resetHorizontalOrientation() {
+	RotationQuaternion_16384 rot_z = rotQuat.getRotationAboutZ();
+	rot_z.conjugate();
+	if (offsetRotation_z) {
+		*offsetRotation_z = Quaternion_16384::crossProduct(&rot_z, offsetRotation_z);
+	}
+	else {
+		offsetRotation_z = new RotationQuaternion_16384(rot_z);
+	}
 }
 
 
@@ -435,11 +448,11 @@ void MotionSensor::resetHorizontalOrientation() {
  */
 void MotionSensor::clearOffsetRotation()
 {
-	if (offsetRotation)	{
-		offsetRotation->conjugate();
-		rotQuat.crossProduct(offsetRotation);
-		delete offsetRotation;
-		offsetRotation = NULL;
+	if (offsetRotation_xy)	{
+		offsetRotation_xy->conjugate();
+		rotQuat.crossProduct(offsetRotation_xy);
+		delete offsetRotation_xy;
+		offsetRotation_xy = NULL;
 	}
 }
 
