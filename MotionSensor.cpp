@@ -186,37 +186,38 @@ void MotionSensor::update(uint16_t elapsedTime_ms)
   /*
    * The MPU6050 returns a rotational quaternion
    */
-  RotationQuaternion_16384 newRq;
+	rawQuat.r = raw_quarternion[0];
+	rawQuat.x = raw_quarternion[1];
+	rawQuat.y = raw_quarternion[2];
+	rawQuat.z = raw_quarternion[3];
 
-  newRq.r = raw_quarternion[0];
-  newRq.x = raw_quarternion[1];
-  newRq.y = raw_quarternion[2];
-  newRq.z = raw_quarternion[3];
 
   /*
    * If there is an offsetRotation configured then this is 
    * applied using a crossProduct
    */
-  if (offsetRotation != NULL) {
-    newRq.crossProduct(offsetRotation);
+	RotationQuaternion_16384 newRot;
+	if (offsetRotation_xy != NULL) {
+	  newRot = Quaternion_16384::crossProduct(&rawQuat, offsetRotation_xy);
+  }
+  else {
+	  newRot = rawQuat;
+  }
+
+  /* Remove horizontal z rotation after */
+  if (offsetRotation_z != NULL) {
+	  newRot = Quaternion_16384::crossProduct(offsetRotation_z, &newRot);
   }
 
   /*
    * Delta is calculated by taking the conjugate of the old rotation 
    * and removing if from the new. This is effectively a subtraction
    */
-  rotQuatDelta.r = newRq.r;
-  rotQuatDelta.x = newRq.x;
-  rotQuatDelta.y = newRq.y;
-  rotQuatDelta.z = newRq.z;
-
+  rotQuatDelta = newRot;
   rotQuat.conjugate();
   rotQuatDelta.crossProduct(&rotQuat);
   
-  rotQuat.r = newRq.r;
-  rotQuat.x = newRq.x;
-  rotQuat.y = newRq.y;
-  rotQuat.z = newRq.z;
+  rotQuat = newRot;
 
   /*
    * Now calculate gravity
@@ -396,7 +397,7 @@ int MotionSensor::runSelfCalibrate(CALIBRATION * calibration) {
  */
 void MotionSensor::autoLevel()
 {
-  if (offsetRotation)
+  if (offsetRotation_xy)
     clearOffsetRotation();
 
   RotationQuaternion_16384 offsetQ;
@@ -415,12 +416,29 @@ void MotionSensor::autoLevel()
  */
 void MotionSensor::setOffsetRotation(RotationQuaternion_16384 * input)
 {
-	if (offsetRotation)
+	if (offsetRotation_xy)
 		clearOffsetRotation();
 
-	offsetRotation = new RotationQuaternion_16384(input);
-	rotQuat.crossProduct(offsetRotation);
+	offsetRotation_xy = new RotationQuaternion_16384(input);
+	rotQuat.crossProduct(offsetRotation_xy);
 }
+
+/*
+ * This adds an additional rotational offset to set rotation about vertical to zero
+ */
+void MotionSensor::resetHorizontalOrientation() {
+	RotationQuaternion_16384 rot = (RotationQuaternion_16384)rawQuat;
+
+	if (offsetRotation_xy != NULL) {
+		rot = Quaternion_16384::crossProduct(&rawQuat, offsetRotation_xy);
+	}
+
+	RotationQuaternion_16384 rot_z = rot.getRotationAboutZ();
+	rot_z.conjugate();
+
+	offsetRotation_z = new RotationQuaternion_16384(rot_z);
+}
+
 
 /*
  * clearOffsetRotation - clears offset rotation
@@ -428,11 +446,33 @@ void MotionSensor::setOffsetRotation(RotationQuaternion_16384 * input)
  */
 void MotionSensor::clearOffsetRotation()
 {
-	if (offsetRotation)	{
-		offsetRotation->conjugate();
-		rotQuat.crossProduct(offsetRotation);
-		delete offsetRotation;
-		offsetRotation = NULL;
+	if (offsetRotation_xy) {
+		delete offsetRotation_xy;
+		offsetRotation_xy = NULL;
+	}
+
+	rotQuat = rawQuat;
+	if (offsetRotation_z) {
+		rotQuat = RotationQuaternion_16384::crossProduct(offsetRotation_z, &rotQuat);
+	}
+}
+
+/*
+ * clearHorizontalOrientation - clears offset rotation
+ *                              also clears current offset
+ */
+void MotionSensor::clearHorizontalOrientation()
+{
+	if (offsetRotation_z) {
+		delete offsetRotation_z;
+		offsetRotation_z = NULL;
+	}
+
+	if (offsetRotation_xy != NULL) {
+		rotQuat = Quaternion_16384::crossProduct(&rawQuat, offsetRotation_xy);
+	}
+	else {
+		rotQuat = rawQuat;
 	}
 }
 

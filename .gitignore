@@ -1,14 +1,4 @@
-# Ignore everything
-*
-
-# But do include these files
-!README.md
-!LICENSE
-!.gitignore
-!.c
-!.cpp
-!.h
-!.txt
-!Examples/**/*.ino
-!Examples/**/*.h
-!Examples/**/*.cpp
+x64
+.vs
+*.filters
+*.user

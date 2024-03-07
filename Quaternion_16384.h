@@ -25,7 +25,10 @@ Contact me at sweet.maker@outlook.com
 ********************************************************************************
 Release     Date                        Change Description
 --------|-------------|--------------------------------------------------------|
-1      26-Apr-2019   Initial release
+   1      26-Apr-2019   Initial release
+--------|-------------|--------------------------------------------------------|
+						- Added rounding for better accuracy
+   2      25-Feb-2024   - Added getRotationAboutZ
 *******************************************************************************/
 
 #ifndef __QUATERNION_16384_H__
@@ -46,13 +49,14 @@ namespace SweetMaker {
 		Quaternion_16384(int16_t r, int16_t x, int16_t y, int16_t z);
 		Quaternion_16384(Quaternion_16384 * q);
 
-		void crossProduct(Quaternion_16384 * q);
+		void crossProduct(Quaternion_16384* q);
+		static Quaternion_16384 crossProduct(Quaternion_16384* a, Quaternion_16384* b);
 		int16_t dotProduct(Quaternion_16384 * q);
 		void conjugate();
 		void normalize();
-    void printQ(void);
-    static int16_t asr(int32_t value, uint8_t amount);
-
+        void printQ(void);
+	    static int16_t asr(int32_t value, uint8_t amount);
+	    static int16_t asrRounded(int32_t value, uint8_t amount);
 
 		uint32_t getMagnitude();
 
@@ -68,18 +72,21 @@ namespace SweetMaker {
 		RotationQuaternion_16384(float angle, int16_t x, int16_t y, int16_t z);
 
 		void rotate(Quaternion_16384 * q);
-    void getGravity(Quaternion_16384* gq);
-    void findOffsetRotation(Quaternion_16384* first, Quaternion_16384 * second);
+        void getGravity(Quaternion_16384* gq);
+        void findOffsetRotation(Quaternion_16384* first, Quaternion_16384 * second);
+	    RotationQuaternion_16384 getRotationAboutZ();
 
 		int16_t getSinRotX();
 		int16_t getSinRotY();
-    int16_t getSinRotZ();
+        int16_t getSinRotZ();
 
-    int16_t getCosRotZ();
+        int16_t getCosRotZ();
 
 		int16_t getRotX();
 		int16_t getRotY();
 		int16_t getRotZ();
+
+		RotationQuaternion_16384& operator=(const Quaternion_16384 &rhs);
 	};
 
 }

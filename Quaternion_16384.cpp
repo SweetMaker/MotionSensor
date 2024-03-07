@@ -1,3 +1,36 @@
+/*******************************************************************************
+MotionSensor.cpp takes an mpu6050 class and manages configuration and control
+				 while integrating it into the SweetMaker framework. Presents
+				 the output from the sensor as a SM::Quaternion_16384
+
+Copyright(C) 2017-2024  Howard James May
+
+This file is part of the SweetMaker SDK
+
+The SweetMaker SDK is free software: you can redistribute it and / or
+modify it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+The SweetMaker SDK is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.If not, see <http://www.gnu.org/licenses/>.
+
+Contact me at sweet.maker@outlook.com
+
+********************************************************************************
+Release     Date                        Change Description
+--------|-------------|--------------------------------------------------------|
+   1      26-Apr-2019   Initial release
+--------|-------------|--------------------------------------------------------|
+						- Added rounding for better accuracy
+   2      25-Feb-2024   - Added getRotationAboutZ
+*******************************************************************************/
+
 #include "math.h"
 #include "Quaternion_16384.h"
 
@@ -41,16 +74,21 @@ Quaternion_16384::Quaternion_16384(Quaternion_16384 * q)
  */
 void Quaternion_16384::crossProduct(Quaternion_16384 * s) 
 {
-
 	int32_t _r = ((int32_t)r * (int32_t)s->r) - ((int32_t)x * (int32_t)s->x) - ((int32_t)y * (int32_t)s->y) - ((int32_t)z * (int32_t)s->z);
 	int32_t _x = ((int32_t)x * (int32_t)s->r) + ((int32_t)r * (int32_t)s->x) - ((int32_t)z * (int32_t)s->y) + ((int32_t)y * (int32_t)s->z);
 	int32_t _y = ((int32_t)y * (int32_t)s->r) + ((int32_t)z * (int32_t)s->x) + ((int32_t)r * (int32_t)s->y) - ((int32_t)x * (int32_t)s->z);
 	int32_t _z = ((int32_t)z * (int32_t)s->r) - ((int32_t)y * (int32_t)s->x) + ((int32_t)x * (int32_t)s->y) + ((int32_t)r * (int32_t)s->z);
 
-  this->r = asr(_r, 14);
-  this->x = asr(_x, 14);
-  this->y = asr(_y, 14);
-  this->z = asr(_z, 14);
+  this->r = asrRounded(_r, 14);
+  this->x = asrRounded(_x, 14);
+  this->y = asrRounded(_y, 14);
+  this->z = asrRounded(_z, 14);
+}
+
+Quaternion_16384 Quaternion_16384::crossProduct(Quaternion_16384* a, Quaternion_16384* b) {
+	Quaternion_16384 result = *a;
+	result.crossProduct(b);
+	return (result);
 }
 
 /*
@@ -65,7 +103,7 @@ int16_t Quaternion_16384::dotProduct(Quaternion_16384 * q)
 	ret_val += (int32_t)z*(int32_t)q->z;
 	ret_val += (int32_t)r*(int32_t)q->r;
 
-	return (asr(ret_val, 14));
+	return (asrRounded(ret_val, 14));
 }
 
 /*
@@ -150,10 +188,10 @@ RotationQuaternion_16384::RotationQuaternion_16384(float angle_degrees, int16_t 
 	y = ((int32_t)_y * 16384) / mag;
 	z = ((int32_t)_z * 16384) / mag;
 
-	x *= sin_theta;
-	y *= sin_theta;
-	z *= sin_theta;
-	r = 16384 * cos_theta;
+	x = (int16_t)round(sin_theta * x);
+	y = (int16_t)round(sin_theta * y);
+	z = (int16_t)round(sin_theta * z);
+	r = (int16_t)round(16384 * cos_theta);
 }
 
 SweetMaker::RotationQuaternion_16384::RotationQuaternion_16384() : Quaternion_16384(0x2000, 0, 0, 0x2000)
@@ -206,7 +244,7 @@ void RotationQuaternion_16384::rotate(Quaternion_16384 * subject_quat)
 int16_t RotationQuaternion_16384::getSinRotX()
 {
   int32_t gy = 2 * (((int32_t)r * (int32_t)x) + ((int32_t)y * (int32_t)z));
-  gy = asr(gy, 14);
+  gy = asrRounded(gy, 14);
 	return (gy);
 }
 
@@ -217,7 +255,7 @@ int16_t RotationQuaternion_16384::getSinRotX()
 int16_t RotationQuaternion_16384::getSinRotY()
 {
   int32_t gx = 2 * (((int32_t)x * (int32_t)z) - ((int32_t)r * (int32_t)y));
-  gx = asr(gx, 14);
+  gx = asrRounded(gx, 14);
   return(gx);
 }
 
@@ -280,25 +318,32 @@ int16_t RotationQuaternion_16384::getRotZ()
 	return (int16_t)rotZ;
 }
 
+/*
+ * getGravity - Gravity (+ve z-axis in base frame) transfered into rotated frame. This is useful for isolating x and y tilt from
+ *              rotation about the z axis. 
+ */
 void RotationQuaternion_16384::getGravity(Quaternion_16384* gq)
 {
   gq->r = 0;
 
   int32_t gx = 2 * (((int32_t)x * (int32_t)z) - ((int32_t)r * (int32_t)y));
-  gq->x = asr(gx, 14);
+  gq->x = asrRounded(gx, 14);
 
   int32_t gy = 2 * (((int32_t)r * (int32_t)x) + ((int32_t)y * (int32_t)z));
-  gq->y = asr(gy, 14);
+  gq->y = asrRounded(gy, 14);
 
   int32_t gz = ((int32_t)r * (int32_t)r) - ((int32_t)x * (int32_t)x) - ((int32_t)y * (int32_t)y) + ((int32_t)z * (int32_t)z);
-  gq->z = asr(gz, 14);
+  gq->z = asrRounded(gz, 14);
 
   return;
 }
 
+/*
+ * findOffsetRotation - given two vectors this calculates a rotation from one to the other.
+ */
 void RotationQuaternion_16384::findOffsetRotation(Quaternion_16384 * first, Quaternion_16384 * second)
 {
-  *this = { first->r, first->x, first->y, first->z };
+  *this = *first;
    int16_t _r = dotProduct(second);
 
     crossProduct(second);
@@ -306,6 +351,34 @@ void RotationQuaternion_16384::findOffsetRotation(Quaternion_16384 * first, Quat
 
     r += 16384;
     normalize();
+}
+
+/*
+ * getRotationAboutZ - isolate rotation about z-axis from x and y
+ */
+RotationQuaternion_16384 RotationQuaternion_16384::getRotationAboutZ() {
+	// Calculate the rotation related to just xy tilt by using 'gravity'
+	Quaternion_16384 z_axis(0, 0, 0, 16384);
+	Quaternion_16384 gravity;
+	this->getGravity(&gravity);
+	RotationQuaternion_16384 xy_rot;
+	xy_rot.findOffsetRotation(&gravity, &z_axis);
+
+	// On the assumption that rot_xyz == rot_z * rot_xy
+	// Then rot_xyz * inv(rot_xy) == rot_z * rot_xy *inv(rot_xy) == rot_z
+	
+	xy_rot.conjugate();
+	RotationQuaternion_16384 z_rot; 
+	z_rot = Quaternion_16384::crossProduct(this, &xy_rot);
+	return z_rot;
+}
+
+RotationQuaternion_16384& RotationQuaternion_16384::operator=(const Quaternion_16384& rhs) {
+	this->r = rhs.r;
+	this->x = rhs.x;
+	this->y = rhs.y;
+	this->z = rhs.z;
+	return *this;
 }
 
 
@@ -337,4 +410,19 @@ int16_t Quaternion_16384::asr(int32_t value, uint8_t amount)
     return (int16_t)(-(-value >> amount));
   }
   return (int16_t)(value >> amount);
+}
+
+/*
+ * Arithmetic Shift Right with rounding for signed integers
+ */
+int16_t Quaternion_16384::asrRounded(int32_t value, uint8_t amount)
+{
+	int32_t round_offset = (1 << (amount - 1)) -1;
+	if (value < 0)
+	{
+		value -= round_offset;
+		return (int16_t)(-(-value >> amount));
+	}
+	value += round_offset;
+	return (int16_t)(value >> amount);
 }
