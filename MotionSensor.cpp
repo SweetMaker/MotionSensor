@@ -186,42 +186,38 @@ void MotionSensor::update(uint16_t elapsedTime_ms)
   /*
    * The MPU6050 returns a rotational quaternion
    */
-  RotationQuaternion_16384 newRq;
+	rawQuat.r = raw_quarternion[0];
+	rawQuat.x = raw_quarternion[1];
+	rawQuat.y = raw_quarternion[2];
+	rawQuat.z = raw_quarternion[3];
 
-  newRq.r = raw_quarternion[0];
-  newRq.x = raw_quarternion[1];
-  newRq.y = raw_quarternion[2];
-  newRq.z = raw_quarternion[3];
 
   /*
    * If there is an offsetRotation configured then this is 
    * applied using a crossProduct
    */
-  if (offsetRotation_xy != NULL) {
-	  newRq.crossProduct(offsetRotation_xy);
+	RotationQuaternion_16384 newRot;
+	if (offsetRotation_xy != NULL) {
+	  newRot = Quaternion_16384::crossProduct(&rawQuat, offsetRotation_xy);
+  }
+  else {
+	  newRot = rawQuat;
   }
 
   /* Remove horizontal z rotation after */
   if (offsetRotation_z != NULL) {
-	  newRq = Quaternion_16384::crossProduct(offsetRotation_z, &newRq);
+	  newRot = Quaternion_16384::crossProduct(offsetRotation_z, &newRot);
   }
 
   /*
    * Delta is calculated by taking the conjugate of the old rotation 
    * and removing if from the new. This is effectively a subtraction
    */
-  rotQuatDelta.r = newRq.r;
-  rotQuatDelta.x = newRq.x;
-  rotQuatDelta.y = newRq.y;
-  rotQuatDelta.z = newRq.z;
-
+  rotQuatDelta = newRot;
   rotQuat.conjugate();
   rotQuatDelta.crossProduct(&rotQuat);
   
-  rotQuat.r = newRq.r;
-  rotQuat.x = newRq.x;
-  rotQuat.y = newRq.y;
-  rotQuat.z = newRq.z;
+  rotQuat = newRot;
 
   /*
    * Now calculate gravity
@@ -431,14 +427,16 @@ void MotionSensor::setOffsetRotation(RotationQuaternion_16384 * input)
  * This adds an additional rotational offset to set rotation about vertical to zero
  */
 void MotionSensor::resetHorizontalOrientation() {
-	RotationQuaternion_16384 rot_z = rotQuat.getRotationAboutZ();
+	RotationQuaternion_16384 rot = (RotationQuaternion_16384)rawQuat;
+
+	if (offsetRotation_xy != NULL) {
+		rot = Quaternion_16384::crossProduct(&rawQuat, offsetRotation_xy);
+	}
+
+	RotationQuaternion_16384 rot_z = rot.getRotationAboutZ();
 	rot_z.conjugate();
-	if (offsetRotation_z) {
-		*offsetRotation_z = Quaternion_16384::crossProduct(&rot_z, offsetRotation_z);
-	}
-	else {
-		offsetRotation_z = new RotationQuaternion_16384(rot_z);
-	}
+
+	offsetRotation_z = new RotationQuaternion_16384(rot_z);
 }
 
 
@@ -448,11 +446,33 @@ void MotionSensor::resetHorizontalOrientation() {
  */
 void MotionSensor::clearOffsetRotation()
 {
-	if (offsetRotation_xy)	{
-		offsetRotation_xy->conjugate();
-		rotQuat.crossProduct(offsetRotation_xy);
+	if (offsetRotation_xy) {
 		delete offsetRotation_xy;
 		offsetRotation_xy = NULL;
+	}
+
+	rotQuat = rawQuat;
+	if (offsetRotation_z) {
+		rotQuat = RotationQuaternion_16384::crossProduct(offsetRotation_z, &rotQuat);
+	}
+}
+
+/*
+ * clearHorizontalOrientation - clears offset rotation
+ *                              also clears current offset
+ */
+void MotionSensor::clearHorizontalOrientation()
+{
+	if (offsetRotation_z) {
+		delete offsetRotation_z;
+		offsetRotation_z = NULL;
+	}
+
+	if (offsetRotation_xy != NULL) {
+		rotQuat = Quaternion_16384::crossProduct(&rawQuat, offsetRotation_xy);
+	}
+	else {
+		rotQuat = rawQuat;
 	}
 }
 

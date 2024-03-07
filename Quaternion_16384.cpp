@@ -343,7 +343,7 @@ void RotationQuaternion_16384::getGravity(Quaternion_16384* gq)
  */
 void RotationQuaternion_16384::findOffsetRotation(Quaternion_16384 * first, Quaternion_16384 * second)
 {
-  *this = (Quaternion_16384){ first->r, first->x, first->y, first->z };
+  *this = *first;
    int16_t _r = dotProduct(second);
 
     crossProduct(second);
@@ -365,7 +365,7 @@ RotationQuaternion_16384 RotationQuaternion_16384::getRotationAboutZ() {
 	xy_rot.findOffsetRotation(&gravity, &z_axis);
 
 	// On the assumption that rot_xyz == rot_z * rot_xy
-	// Then rot_xyv * inv(rot_xy) == rot_z * rot_xy *inv(rot_xy) == rot_z
+	// Then rot_xyz * inv(rot_xy) == rot_z * rot_xy *inv(rot_xy) == rot_z
 	
 	xy_rot.conjugate();
 	RotationQuaternion_16384 z_rot; 

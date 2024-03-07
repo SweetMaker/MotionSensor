@@ -96,6 +96,7 @@ namespace SweetMaker {
         void setOffsetRotation(RotationQuaternion_16384* q);
         void clearOffsetRotation(); // including autoLevel;
         void resetHorizontalOrientation();
+        void clearHorizontalOrientation();
 
         /*
          * This generates calibration values for MPU6050.
@@ -119,6 +120,10 @@ namespace SweetMaker {
         RotationQuaternion_16384* offsetRotation_xy = NULL;
         RotationQuaternion_16384* offsetRotation_z = NULL;
 
+        /*
+         * Raw rotation direct from the sensor
+         */
+        RotationQuaternion_16384 rawQuat;
         /*
          * Current rotation (following any offset)
          */
