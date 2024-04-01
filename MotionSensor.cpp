@@ -180,7 +180,6 @@ void MotionSensor::update(uint16_t elapsedTime_ms)
 	mpu6050.getFIFOBytes(fifoBuffer, MPU6050::dmpPacketSize);
 
 	int16_t raw_quarternion[4];
-
 	mpu6050.dmpGetQuaternion(raw_quarternion, fifoBuffer);
 
   /*
@@ -190,7 +189,6 @@ void MotionSensor::update(uint16_t elapsedTime_ms)
 	rawQuat.x = raw_quarternion[1];
 	rawQuat.y = raw_quarternion[2];
 	rawQuat.z = raw_quarternion[3];
-
 
   /*
    * If there is an offsetRotation configured then this is 
@@ -223,6 +221,25 @@ void MotionSensor::update(uint16_t elapsedTime_ms)
    * Now calculate gravity
    */
   rotQuat.getGravity(&gravity);
+
+  int16_t raw_accel[3];
+  mpu6050.dmpGetAccel(raw_accel, fifoBuffer);
+  linearAccel.r - 0;
+  linearAccel.x = raw_accel[0];
+  linearAccel.y = raw_accel[1];
+  linearAccel.z = raw_accel[2];
+
+  /*
+  * Linear Gravity needs rotating to the "offset" frame
+  */
+  if (offsetRotation_xy != NULL) {
+	  offsetRotation_xy->rotate(&linearAccel);
+  }
+
+  // This is for further consideration
+  //if (offsetRotation_z != NULL) {
+	//  offsetRotation_z->rotate(&linearAccel);
+ // }
 
 	/*
 	 * Notify system a new sample is available
@@ -492,3 +509,19 @@ void MotionSensor::setCalibration(CALIBRATION * calibration)
 }
 
 
+Quaternion_16384 MotionSensor::calculateAcceleration(Quaternion_16384* gravity, Quaternion_16384 *rawAcceleration) {
+	Quaternion_16384 accel = *rawAcceleration;
+	accel -= *gravity;
+	return accel;
+}
+
+/*
+ * calcAccel - this calculates linear acceleration in the world frame which requires compensation
+ *             for the force of gravity acting upon the sensor
+ */
+void MotionSensor::calcAccel() {
+	this->gravity.printQ();
+	this->linearAccel.printQ();
+	Quaternion_16384 compensatedAccel = calculateAcceleration(&this->gravity, &this->linearAccel);
+	compensatedAccel.printQ();
+}

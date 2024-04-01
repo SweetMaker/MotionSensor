@@ -174,6 +174,14 @@ uint32_t SweetMaker::Quaternion_16384::getMagnitude() {
 	return (ret_val);
 }
 
+Quaternion_16384& SweetMaker::Quaternion_16384::operator-(const Quaternion_16384& rhs)
+{
+	this->x -= rhs.x;
+	this->y -= rhs.y;
+	this->z -= rhs.z;
+	return *this;
+}
+
 
 RotationQuaternion_16384::RotationQuaternion_16384(float angle_degrees, int16_t _x, int16_t _y, int16_t _z)
 {

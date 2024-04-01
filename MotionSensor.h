@@ -135,15 +135,17 @@ namespace SweetMaker {
         RotationQuaternion_16384 rotQuatDelta;
 
         /*
-         * Gravity - offset relative to gravity
+         * Gravity - relative to "offset" frame
          */
-        Quaternion_16384 gravity;
+        Quaternion_16384 gravity; 
 
         /*
-         * raw linear acceleration values;
+         * Raw linear acceleration values - relative to "offset" frame
          */
-        int16_t linearAccel[3];
+        Quaternion_16384 linearAccel; 
 
+        static Quaternion_16384 calculateAcceleration(Quaternion_16384* gravity, Quaternion_16384 * rawAcceleration);
+        void calcAccel();
     private:
         IEventHandler* eventHandler;
         MPU6050 mpu6050;

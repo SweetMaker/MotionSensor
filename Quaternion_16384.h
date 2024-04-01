@@ -61,6 +61,7 @@ namespace SweetMaker {
 		uint32_t getMagnitude();
 
 		const static int32_t unit_scale_factor = 0x4000;
+		Quaternion_16384& operator-(const Quaternion_16384& rhs);
 	};
 
 	class RotationQuaternion_16384 : public Quaternion_16384
