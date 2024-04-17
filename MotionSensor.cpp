@@ -3,7 +3,7 @@ MotionSensor.cpp takes an mpu6050 class and manages configuration and control
                  while integrating it into the SweetMaker framework. Presents 
 				 the output from the sensor as a SM::Quaternion_16384
 
-Copyright(C) 2017-2021  Howard James May
+Copyright(C) 2017-2024  Howard James May
 
 This file is part of the SweetMaker SDK
 
@@ -31,7 +31,10 @@ Release     Date                        Change Description
 					           - use of SM::Quaternion_16384 for processing
 					           - addition of rotation offset
 3      07-Mar-2021   Fixed calibration routine
-                     - fixed rotation offset / autoLevel
+					 - fixed rotation offset / autoLevel
+4      17-Apr-2024   - Significant Refactoring
+                     - added rotation about Z offset
+					 - added linear acceleration
 *******************************************************************************/
 
 #include <Arduino.h>
@@ -121,10 +124,10 @@ int MotionSensor::init(CALIBRATION * calibration)
   /*
    * Set gravity to sane, though incorrect value!
    */
-  gravity.r = 0;
-  gravity.x = 0;
-  gravity.y = 0;
-  gravity.z = 16384;
+  gravity_m.r = 0;
+  gravity_m.x = 0;
+  gravity_m.y = 0;
+  gravity_m.z = 16384;
 
   /*
    * Send indication that sensor is now ready
@@ -183,63 +186,61 @@ void MotionSensor::update(uint16_t elapsedTime_ms)
 	mpu6050.dmpGetQuaternion(raw_quarternion, fifoBuffer);
 
   /*
-   * The MPU6050 returns a rotational quaternion
+   * The MPU6050 returns a rotational quaternion which represents the rotation to "real world" from "sensor" frame
    */
-	rawQuat.r = raw_quarternion[0];
-	rawQuat.x = raw_quarternion[1];
-	rawQuat.y = raw_quarternion[2];
-	rawQuat.z = raw_quarternion[3];
+	rawQuat_rs.r = raw_quarternion[0];
+	rawQuat_rs.x = raw_quarternion[1];
+	rawQuat_rs.y = raw_quarternion[2];
+	rawQuat_rs.z = raw_quarternion[3];
 
   /*
    * If there is an offsetRotation configured then this is 
    * applied using a crossProduct
    */
-	RotationQuaternion_16384 newRot;
-	if (offsetRotation_xy != NULL) {
-	  newRot = Quaternion_16384::crossProduct(&rawQuat, offsetRotation_xy);
+	RotationQuaternion_16384 newRot_rm;
+	if (offsetRotation_sm_xy != NULL) {
+	  newRot_rm = Quaternion_16384::crossProduct(&rawQuat_rs, offsetRotation_sm_xy);
   }
   else {
-	  newRot = rawQuat;
+	  newRot_rm = rawQuat_rs; // model is the same as the sensor
   }
 
   /* Remove horizontal z rotation after */
-  if (offsetRotation_z != NULL) {
-	  newRot = Quaternion_16384::crossProduct(offsetRotation_z, &newRot);
+  if (offsetRotation_rm_z != NULL) {
+	  newRot_rm = Quaternion_16384::crossProduct(offsetRotation_rm_z, &newRot_rm);
   }
 
   /*
    * Delta is calculated by taking the conjugate of the old rotation 
    * and removing if from the new. This is effectively a subtraction
    */
-  rotQuatDelta = newRot;
-  rotQuat.conjugate();
-  rotQuatDelta.crossProduct(&rotQuat);
+  rotQuat_rm = Quaternion_16384::conjugate(&rotQuat_rm);
+  rotQuatDelta = Quaternion_16384::crossProduct(&newRot_rm, &rotQuat_rm);
   
-  rotQuat = newRot;
+  rotQuat_rm = newRot_rm;
 
   /*
-   * Now calculate gravity
+   * Now calculate gravity in model frame
    */
-  rotQuat.getGravity(&gravity);
+  gravity_m = rotQuat_rm.getGravity();
 
-  int16_t raw_accel[3];
-  mpu6050.dmpGetAccel(raw_accel, fifoBuffer);
-  linearAccel.r - 0;
-  linearAccel.x = raw_accel[0];
-  linearAccel.y = raw_accel[1];
-  linearAccel.z = raw_accel[2];
+  int16_t raw_accel_s[3];
+  mpu6050.dmpGetAccel(raw_accel_s, fifoBuffer);
+  
+  Quaternion_16384 linearAccel_s = { 0, raw_accel_s[0], raw_accel_s[1], raw_accel_s[2] };
 
   /*
-  * Linear Gravity needs rotating to the "offset" frame
-  */
-  if (offsetRotation_xy != NULL) {
-	  offsetRotation_xy->rotate(&linearAccel);
-  }
+   * Linear Gravity needs rotating from the "sensor" to the "model" frame
+   */
+  if (offsetRotation_sm_xy != NULL) {
+	  RotationQuaternion_16384 offsetRot_ms_xy;
+	  offsetRot_ms_xy = Quaternion_16384::conjugate(offsetRotation_sm_xy);
 
-  // This is for further consideration
-  //if (offsetRotation_z != NULL) {
-	//  offsetRotation_z->rotate(&linearAccel);
- // }
+	  linearAccel_m = offsetRot_ms_xy.rotate(&linearAccel_s);
+  }
+  else {
+	  linearAccel_m = linearAccel_s;
+  }
 
 	/*
 	 * Notify system a new sample is available
@@ -414,46 +415,42 @@ int MotionSensor::runSelfCalibrate(CALIBRATION * calibration) {
  */
 void MotionSensor::autoLevel()
 {
-  if (offsetRotation_xy)
-    clearOffsetRotation();
-
-  RotationQuaternion_16384 offsetQ;
+  RotationQuaternion_16384 rotQuat_rs = this->rawQuat_rs; // compiler is getting confused so need to do this!
+  RotationQuaternion_16384 offset_sm_xy;
   Quaternion_16384 zAxis(0,0,0,16384);
-  Quaternion_16384 gq;
+  Quaternion_16384 gq = rotQuat_rs.getGravity();
 
-  rotQuat.getGravity(&gq);
-  offsetQ.findOffsetRotation(&zAxis, &gq);
+  offset_sm_xy = RotationQuaternion_16384::findOffsetRotation(&gq, &zAxis);
 
-  setOffsetRotation(&offsetQ);
+  setOffsetRotation(&offset_sm_xy);
 }
 
 /*
  * setOffsetRotation - configures new offset rotation to given value
- *                     this also updates current rotation
+ *                     takes rotation from sensor to model as input (only xy componenets)
  */
-void MotionSensor::setOffsetRotation(RotationQuaternion_16384 * input)
+void MotionSensor::setOffsetRotation(RotationQuaternion_16384 * rot_sm_xy)
 {
-	if (offsetRotation_xy)
-		clearOffsetRotation();
+	clearOffsetRotation();
 
-	offsetRotation_xy = new RotationQuaternion_16384(input);
-	rotQuat.crossProduct(offsetRotation_xy);
+	offsetRotation_sm_xy = new RotationQuaternion_16384(rot_sm_xy);
+	rotQuat_rm = Quaternion_16384::crossProduct(&rawQuat_rs, offsetRotation_sm_xy);
 }
 
 /*
  * This adds an additional rotational offset to set rotation about vertical to zero
  */
 void MotionSensor::resetHorizontalOrientation() {
-	RotationQuaternion_16384 rot = (RotationQuaternion_16384)rawQuat;
+	RotationQuaternion_16384 rot = (RotationQuaternion_16384)rawQuat_rs;
 
-	if (offsetRotation_xy != NULL) {
-		rot = Quaternion_16384::crossProduct(&rawQuat, offsetRotation_xy);
+	if (offsetRotation_sm_xy != NULL) {
+		rot = Quaternion_16384::crossProduct(&rawQuat_rs, offsetRotation_sm_xy);
 	}
 
 	RotationQuaternion_16384 rot_z = rot.getRotationAboutZ();
 	rot_z.conjugate();
 
-	offsetRotation_z = new RotationQuaternion_16384(rot_z);
+	offsetRotation_rm_z = new RotationQuaternion_16384(rot_z);
 }
 
 
@@ -463,14 +460,14 @@ void MotionSensor::resetHorizontalOrientation() {
  */
 void MotionSensor::clearOffsetRotation()
 {
-	if (offsetRotation_xy) {
-		delete offsetRotation_xy;
-		offsetRotation_xy = NULL;
+	if (offsetRotation_sm_xy) {
+		delete offsetRotation_sm_xy;
+		offsetRotation_sm_xy = NULL;
 	}
 
-	rotQuat = rawQuat;
-	if (offsetRotation_z) {
-		rotQuat = RotationQuaternion_16384::crossProduct(offsetRotation_z, &rotQuat);
+	rotQuat_rm = rawQuat_rs;
+	if (offsetRotation_rm_z) {
+		rotQuat_rm = RotationQuaternion_16384::crossProduct(offsetRotation_rm_z, &rotQuat_rm);
 	}
 }
 
@@ -480,16 +477,16 @@ void MotionSensor::clearOffsetRotation()
  */
 void MotionSensor::clearHorizontalOrientation()
 {
-	if (offsetRotation_z) {
-		delete offsetRotation_z;
-		offsetRotation_z = NULL;
+	if (offsetRotation_rm_z) {
+		delete offsetRotation_rm_z;
+		offsetRotation_rm_z = NULL;
 	}
 
-	if (offsetRotation_xy != NULL) {
-		rotQuat = Quaternion_16384::crossProduct(&rawQuat, offsetRotation_xy);
+	if (offsetRotation_sm_xy != NULL) {
+		rotQuat_rm = Quaternion_16384::crossProduct(&rawQuat_rs, offsetRotation_sm_xy);
 	}
 	else {
-		rotQuat = rawQuat;
+		rotQuat_rm = rawQuat_rs;
 	}
 }
 
@@ -508,10 +505,15 @@ void MotionSensor::setCalibration(CALIBRATION * calibration)
 	mpu6050.setZAccelOffset(calibration->accelZoffset);
 }
 
-
-Quaternion_16384 MotionSensor::calculateAcceleration(Quaternion_16384* gravity, Quaternion_16384 *rawAcceleration) {
-	Quaternion_16384 accel = *rawAcceleration;
-	accel -= *gravity;
+/*
+ * This is based on a raw accel value of 1G = 8192 and gravity being a unit quaternion in the direction of gravity
+ */
+Quaternion_16384 MotionSensor::calculateAcceleration(Quaternion_16384* gravity_m, Quaternion_16384 *accel_m) {
+	Quaternion_16384 accel;
+	accel.r = 0;
+	accel.x = 2*accel_m->x  - gravity_m->x;
+	accel.y = 2*accel_m->y  - gravity_m->y;
+	accel.z = 2*accel_m->z  - gravity_m->z;
 	return accel;
 }
 
@@ -520,8 +522,8 @@ Quaternion_16384 MotionSensor::calculateAcceleration(Quaternion_16384* gravity, 
  *             for the force of gravity acting upon the sensor
  */
 void MotionSensor::calcAccel() {
-	this->gravity.printQ();
-	this->linearAccel.printQ();
-	Quaternion_16384 compensatedAccel = calculateAcceleration(&this->gravity, &this->linearAccel);
+	Quaternion_16384 compensatedAccel = calculateAcceleration(&this->gravity_m, &this->linearAccel_m);
+	Serial.print(16384); Serial.print(" ");
+	Serial.print(compensatedAccel.getMagnitude()); Serial.print(" ");
 	compensatedAccel.printQ();
 }

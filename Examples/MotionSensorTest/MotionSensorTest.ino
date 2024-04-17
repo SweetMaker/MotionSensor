@@ -1,6 +1,5 @@
 #include <Wire.h>
 #include <SweetMaker.h>
-#include <FastLED.h>
 #include <MotionSensor.h>
 
 using namespace SweetMaker;
@@ -11,14 +10,36 @@ void myEventHandler(uint16_t eventId, uint8_t src, uint16_t eventInfo);
 
 static unsigned long lastUpdateTime_ms;
 
+#ifdef ARDUINO_ARCH_AVR
+const static uint8_t ms_scl = 19;    // A5+
+const static uint8_t ms_sda = 18;    // A4
+const static uint8_t ms_5v_pin = 17; // A3
+const static uint8_t ms_0v_pin = 16; // A2
+
+const static uint8_t ledStripSigPin = 11;
+#endif
+
+#ifdef ARDUINO_ARCH_ESP32
+const static uint8_t ms_scl = 21;    // A5+
+const static uint8_t ms_sda = 22;    // A4
+const static uint8_t ms_5v_pin = 17; // A3
+const static uint8_t ms_0v_pin = 16; // A2
+
+const static uint8_t ledStripSigPin = 27;
+#endif
+
+//MotionSensor::CALIBRATION cal = { -960, 602, 816, 88, 5, -7 };
+MotionSensor::CALIBRATION cal = { -655, 914, 1842, 29, 115, -1 };
+bool contCalcAccel = false;
+
 void setup()
 {
 	int ret_val;
 
-	pinMode(A3, OUTPUT);
-	digitalWrite(A3, HIGH);
-	pinMode(A2, OUTPUT);
-	digitalWrite(A2, LOW);
+	pinMode(ms_5v_pin, OUTPUT);
+	digitalWrite(ms_5v_pin, HIGH);
+	pinMode(ms_0v_pin, OUTPUT);
+	digitalWrite(ms_0v_pin, LOW);
 
 	/* Start Serial at a speed (Baud rate) of 112500 Bytes per second */
 	Serial.begin(112500);
@@ -28,7 +49,8 @@ void setup()
 
 	lastUpdateTime_ms = millis();
 
-	while (motionSensor.init() != 0)
+
+	while (motionSensor.init(&cal) != 0)
 	{
 		Serial.println("MS init fail");
 	}
@@ -46,7 +68,10 @@ void loop()
 	PerfMon::getPerfMon()->intervalStart();
 
 	AutoUpdateMngr::getUpdater()->update(elapsedTime_ms);
-	
+		
+	// Check for any input on the Serial Port (only relevant when connected to computer)
+	handleSerialInput();
+
 	lastUpdateTime_ms = thisTime_ms;
 }
 
@@ -70,43 +95,30 @@ void myEventHandler(uint16_t eventId, uint8_t eventRef, uint16_t eventInfo)
 	break;
 
 	case TimerTickMngt::TIMER_TICK_S: // Generated every second
-//#define QAT
-#ifdef YPR
-		Serial.print(mssp.yawPitchRoll[0]);
-		Serial.print(":");
-		Serial.print(mssp.yawPitchRoll[1]);
-		Serial.print(":");
-		Serial.println(mssp.yawPitchRoll[2]);
-#endif
-#ifdef QAT
-		Serial.print(mssp.q_float.w);
-		Serial.print(":");
-		Serial.print(mssp.q_float.x);
-		Serial.print(":");
-		Serial.print(mssp.q_float.y);
-		Serial.print(":");
-		Serial.println(mssp.q_float.z);
-#endif
 		break;
 
 	case TimerTickMngt::TIMER_TICK_10S: // Generated once every ten seconds
-										//		PerfMon::getPerfMon()->print();
+	//	PerfMon::getPerfMon()->print();
+	//	Serial.println("calcAccel");
+	//	motionSensor.calcAccel();
 		break;
 
-	case IMotionSensor::MOTION_SENSOR_INIT_ERROR:
+	case MotionSensor::MOTION_SENSOR_INIT_ERROR:
 		Serial.print("Motion Sensor Init Failed: ");
 		Serial.println(eventInfo);
 		break;
 
-	case IMotionSensor::MOTION_SENSOR_READY:
+	case MotionSensor::MOTION_SENSOR_READY:
 		Serial.print("MOTION_SENSOR_READY: ");
 		break;
 
-	case IMotionSensor::MOTION_SENSOR_RUNTIME_ERROR:
+	case MotionSensor::MOTION_SENSOR_RUNTIME_ERROR:
 		Serial.println("Motion Sensor Error");
 		break;
 
-	case IMotionSensor::MOTION_SENSOR_NEW_SMPL_RDY:
+	case MotionSensor::MOTION_SENSOR_NEW_SMPL_RDY:
+		if(contCalcAccel)
+    		motionSensor.calcAccel();
 		break;
 
 	case SigGen::SIG_GEN_STOPPED: // A Signal Generator has been stopped
@@ -117,3 +129,51 @@ void myEventHandler(uint16_t eventId, uint8_t eventRef, uint16_t eventInfo)
 	}
 }
 
+/* This supports various management functions as shown below */
+void handleSerialInput() {
+	if (Serial.available()) {
+		char c = Serial.read();
+		Serial.println(c);
+
+		switch (c) {
+		case 'a': {
+			// Calibrates the motionSensor and stores result in EEPROM
+			Serial.println("Calculate acceleration");
+			motionSensor.gravity_m.printQ();
+			motionSensor.linearAccel_m.printQ();
+			motionSensor.calcAccel();
+		}
+		break;
+
+		case 'b': {
+			contCalcAccel = !contCalcAccel;
+		}
+		break;
+
+		case 'c': {
+			// Calibrates the motionSensor and stores result in EEPROM
+			MotionSensor::CALIBRATION calibration;
+			Serial.println("MotionSensor must be level and stationary");
+			Serial.println("Starting to calibrate");
+			motionSensor.runSelfCalibrate(&calibration);
+            Serial.println("Calibration complete");
+		}
+		break;
+
+		case 'l': {
+			// Configures the motionSensor rotation offset to believe it is level
+			// Stores the configuration in EEPROM
+			Serial.println("AutoLevel");
+			motionSensor.autoLevel();
+		}
+		break;
+
+		case 'z': {
+			// Removes any rotation offset from the motionSensor
+			Serial.println("Clear offset");
+			motionSensor.clearOffsetRotation();
+		}
+		break;
+		}
+	}
+}

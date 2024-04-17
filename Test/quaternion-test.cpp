@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdexcept>
-#include "Quaternion_16384.h"
+#include "../Quaternion_16384.h"
 #include <iostream>
 
 using namespace SweetMaker;
@@ -137,16 +137,16 @@ void rotateQuaternionAboutX() {
 	Quaternion_16384 z_axis(0, 0, 0, 1000);
 	RotationQuaternion_16384 rotate90AboutX((float)-90, 16384, 0, 0);
 
-	rotate90AboutX.rotate(&z_axis);
+	z_axis = rotate90AboutX.rotate(&z_axis);
 	expectQuatEquals(0, 0, 1000, 0, &z_axis); // pointing at y
 
-	rotate90AboutX.rotate(&z_axis);
+	z_axis = rotate90AboutX.rotate(&z_axis);
 	expectQuatEquals(0, 0, 0, -1000, &z_axis); // pointing at -z
 
-	rotate90AboutX.rotate(&z_axis);
+	z_axis = rotate90AboutX.rotate(&z_axis);
 	expectQuatEquals(0, 0, -1000, 0, &z_axis); // pointing at -y
 
-	rotate90AboutX.rotate(&z_axis);
+	z_axis = rotate90AboutX.rotate(&z_axis);
 	expectQuatEquals(0, 0, 0, 1000, &z_axis); // and back to z
 }
 
@@ -155,16 +155,16 @@ void rotateQuaternionAboutZ() {
 	Quaternion_16384 x_axis(0, 1000, 0, 0);
 	RotationQuaternion_16384 rotate90AboutZ((float)90, 0, 0, 16384);
 
-	rotate90AboutZ.rotate(&x_axis);
+	x_axis = rotate90AboutZ.rotate(&x_axis);
 	expectQuatEquals(0, 0, 1000, 0, &x_axis); // pointing at y
 	
-	rotate90AboutZ.rotate(&x_axis);
+	x_axis = rotate90AboutZ.rotate(&x_axis);
 	expectQuatEquals(0, -1000, 0, 0, &x_axis); // pointing at -x
 
-	rotate90AboutZ.rotate(&x_axis);
+	x_axis = rotate90AboutZ.rotate(&x_axis);
 	expectQuatEquals(0, 0, -1000, 0, &x_axis); // pointing at -y
 
-	rotate90AboutZ.rotate(&x_axis);
+	x_axis = rotate90AboutZ.rotate(&x_axis);
 	expectQuatEquals(0, 1000, 0, 0, &x_axis); // and back to x
 }
 
@@ -178,7 +178,7 @@ void createOffset() {
 	RotationQuaternion_16384 offsetRotation;
 
 	offsetRotation.findOffsetRotation(&a, &b);
-	offsetRotation.rotate(&a);
+	a = offsetRotation.rotate(&a);
 	expectQuatCloseTo(&a, &b, 10);
 }
 
@@ -236,6 +236,16 @@ void createRotationOffset2() {
 	expectQuatCloseTo(&xy_rotation, &offsetRot, 2);
 }
 
+void subtraction() {
+	printf("%s\n", __FUNCTION__);
+	Quaternion_16384 a(0, 1000, 500, 0);
+	Quaternion_16384 b(100, 500, 500, 500);
+
+	Quaternion_16384 res = a - b;
+
+	expectQuatEquals(0, 500, 0, -500, &res);
+}
+
 
 TestFunction testFunctions[] = {
 	asrRounded,
@@ -246,7 +256,8 @@ TestFunction testFunctions[] = {
 	getGravity,
 	createOffset,
 	createRotationOffset1,
-	createRotationOffset2
+	createRotationOffset2,
+	subtraction
 };
 
 

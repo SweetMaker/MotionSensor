@@ -115,34 +115,39 @@ namespace SweetMaker {
         void update(uint16_t elapsedTime_ms);
 
         /*
-         * Current offsetRotation - if any
+         * Current offsetRotation to sensor from model frame for xy tilt
          */
-        RotationQuaternion_16384* offsetRotation_xy = NULL;
-        RotationQuaternion_16384* offsetRotation_z = NULL;
+        RotationQuaternion_16384* offsetRotation_sm_xy = NULL;
+        
+        /*
+         * Current offsetRotation to real world from model frame for z rotation
+         */
+        RotationQuaternion_16384* offsetRotation_rm_z = NULL;
 
         /*
-         * Raw rotation direct from the sensor
+         * Raw rotation direct from the sensor. This is to real world from sensor frame.
          */
-        RotationQuaternion_16384 rawQuat;
-        /*
-         * Current rotation (following any offset)
-         */
-        RotationQuaternion_16384 rotQuat;
+        RotationQuaternion_16384 rawQuat_rs;
 
         /*
-         * Rotation delta -can be helpful
+         * Current rotation (to real world from from model - following offset)
+         */
+        RotationQuaternion_16384 rotQuat_rm;
+
+        /*
+         * Rotation delta -can be helpful (frame independent)
          */
         RotationQuaternion_16384 rotQuatDelta;
 
         /*
-         * Gravity - relative to "offset" frame
+         * Gravity - relative to "model" frame
          */
-        Quaternion_16384 gravity; 
+        Quaternion_16384 gravity_m; 
 
         /*
-         * Raw linear acceleration values - relative to "offset" frame
+         * Raw linear acceleration values - relative to "model" frame
          */
-        Quaternion_16384 linearAccel; 
+        Quaternion_16384 linearAccel_m; 
 
         static Quaternion_16384 calculateAcceleration(Quaternion_16384* gravity, Quaternion_16384 * rawAcceleration);
         void calcAccel();

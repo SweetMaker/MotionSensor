@@ -72,6 +72,7 @@ Quaternion_16384::Quaternion_16384(Quaternion_16384 * q)
  * NOTE: quaternion cross product is non commutative and so 
  *       q * s != s * q
  */
+[[deprecated]]
 void Quaternion_16384::crossProduct(Quaternion_16384 * s) 
 {
 	int32_t _r = ((int32_t)r * (int32_t)s->r) - ((int32_t)x * (int32_t)s->x) - ((int32_t)y * (int32_t)s->y) - ((int32_t)z * (int32_t)s->z);
@@ -86,8 +87,17 @@ void Quaternion_16384::crossProduct(Quaternion_16384 * s)
 }
 
 Quaternion_16384 Quaternion_16384::crossProduct(Quaternion_16384* a, Quaternion_16384* b) {
-	Quaternion_16384 result = *a;
-	result.crossProduct(b);
+	int32_t _r = ((int32_t)a->r * (int32_t)b->r) - ((int32_t)a->x * (int32_t)b->x) - ((int32_t)a->y * (int32_t)b->y) - ((int32_t)a->z * (int32_t)b->z);
+	int32_t _x = ((int32_t)a->x * (int32_t)b->r) + ((int32_t)a->r * (int32_t)b->x) - ((int32_t)a->z * (int32_t)b->y) + ((int32_t)a->y * (int32_t)b->z);
+	int32_t _y = ((int32_t)a->y * (int32_t)b->r) + ((int32_t)a->z * (int32_t)b->x) + ((int32_t)a->r * (int32_t)b->y) - ((int32_t)a->x * (int32_t)b->z);
+	int32_t _z = ((int32_t)a->z * (int32_t)b->r) - ((int32_t)a->y * (int32_t)b->x) + ((int32_t)a->x * (int32_t)b->y) + ((int32_t)a->r * (int32_t)b->z);
+
+	Quaternion_16384 result;
+	result.r = asrRounded(_r, 14);
+	result.x = asrRounded(_x, 14);
+	result.y = asrRounded(_y, 14);
+	result.z = asrRounded(_z, 14);
+
 	return (result);
 }
 
@@ -95,13 +105,24 @@ Quaternion_16384 Quaternion_16384::crossProduct(Quaternion_16384* a, Quaternion_
  * dotProduct:: The dot product is cos(t) where t is the angle between 
  *              two 4D quaternions
  */
-int16_t Quaternion_16384::dotProduct(Quaternion_16384 * q) 
+[[deprecated]]
+int16_t Quaternion_16384::dotProduct(Quaternion_16384* q)
 {
 	int32_t ret_val;
-	ret_val = (int32_t)x*(int32_t)q->x;
-	ret_val += (int32_t)y*(int32_t)q->y;
-	ret_val += (int32_t)z*(int32_t)q->z;
-	ret_val += (int32_t)r*(int32_t)q->r;
+	ret_val = (int32_t)x * (int32_t)q->x;
+	ret_val += (int32_t)y * (int32_t)q->y;
+	ret_val += (int32_t)z * (int32_t)q->z;
+	ret_val += (int32_t)r * (int32_t)q->r;
+
+	return (asrRounded(ret_val, 14));
+}
+int16_t Quaternion_16384::dotProduct(Quaternion_16384* a, Quaternion_16384* b)
+{
+	int32_t ret_val;
+	ret_val = (int32_t)a->x * (int32_t)b->x;
+	ret_val += (int32_t)a->y * (int32_t)b->y;
+	ret_val += (int32_t)a->z * (int32_t)b->z;
+	ret_val += (int32_t)a->r * (int32_t)b->r;
 
 	return (asrRounded(ret_val, 14));
 }
@@ -109,11 +130,22 @@ int16_t Quaternion_16384::dotProduct(Quaternion_16384 * q)
 /*
  * conjugate:: the quaternion conjugate is formed by negating the vector part
  */
-void Quaternion_16384::conjugate() 
+[[deprecated]]
+void Quaternion_16384::conjugate()
 {
 	x = -x;
 	y = -y;
 	z = -z;
+}
+
+Quaternion_16384 Quaternion_16384::conjugate(Quaternion_16384 * input)
+{
+	Quaternion_16384 result;
+	result.r = input->r;
+	result.x = -input->x;
+	result.y = -input->y;
+	result.z = -input->z;
+	return result;
 }
 
 /*
@@ -183,6 +215,14 @@ Quaternion_16384& SweetMaker::Quaternion_16384::operator-(const Quaternion_16384
 }
 
 
+Quaternion_16384& SweetMaker::Quaternion_16384::operator+(const Quaternion_16384& rhs)
+{
+	this->x += rhs.x;
+	this->y += rhs.y;
+	this->z += rhs.z;
+	return *this;
+}
+
 RotationQuaternion_16384::RotationQuaternion_16384(float angle_degrees, int16_t _x, int16_t _y, int16_t _z)
 {
 	double angle_rad = angle_degrees * 2 * M_PI / 360;
@@ -229,20 +269,17 @@ RotationQuaternion_16384::RotationQuaternion_16384(int16_t r, int16_t x, int16_t
 *    r-1 is the inverse of the rotation quaternion
 *    q is the quaternion to be rotated
 */
-void RotationQuaternion_16384::rotate(Quaternion_16384 * subject_quat)
+Quaternion_16384 RotationQuaternion_16384::rotate(Quaternion_16384 * input_q)
 {
-	RotationQuaternion_16384 rq_conj(this);
-	rq_conj.conjugate();
+	RotationQuaternion_16384 conj_this;
+	conj_this = Quaternion_16384::conjugate(this);
 
-	Quaternion_16384 rotated_q(this);
+	Quaternion_16384 rotated_q;
 
-	rotated_q.crossProduct(subject_quat);
-	rotated_q.crossProduct(&rq_conj);
+	rotated_q = Quaternion_16384::crossProduct(this, input_q);
+	rotated_q = Quaternion_16384::crossProduct(&rotated_q, &conj_this);
 
-	subject_quat->r = rotated_q.r;
-	subject_quat->x = rotated_q.x;
-	subject_quat->y = rotated_q.y;
-	subject_quat->z = rotated_q.z;
+	return rotated_q;
 }
 
 /*
@@ -276,7 +313,7 @@ int16_t RotationQuaternion_16384::getSinRotY()
 int16_t RotationQuaternion_16384::getSinRotZ()
 {
   Quaternion_16384 qx(0, 16384, 0, 0);
-  rotate(&qx);
+  qx = rotate(&qx);
   return (qx.y);
 }
 
@@ -289,7 +326,7 @@ int16_t RotationQuaternion_16384::getSinRotZ()
 int16_t RotationQuaternion_16384::getCosRotZ()
 {
   Quaternion_16384 qx(0, 16384, 0, 0);
-  rotate(&qx);
+  qx = rotate(&qx);
   return (qx.x);
 }
 
@@ -330,35 +367,54 @@ int16_t RotationQuaternion_16384::getRotZ()
  * getGravity - Gravity (+ve z-axis in base frame) transfered into rotated frame. This is useful for isolating x and y tilt from
  *              rotation about the z axis. 
  */
+[[deprecated]]
 void RotationQuaternion_16384::getGravity(Quaternion_16384* gq)
 {
-  gq->r = 0;
+	gq->r = 0;
 
-  int32_t gx = 2 * (((int32_t)x * (int32_t)z) - ((int32_t)r * (int32_t)y));
-  gq->x = asrRounded(gx, 14);
+	int32_t gx = 2 * (((int32_t)x * (int32_t)z) - ((int32_t)r * (int32_t)y));
+	gq->x = asrRounded(gx, 14);
 
-  int32_t gy = 2 * (((int32_t)r * (int32_t)x) + ((int32_t)y * (int32_t)z));
-  gq->y = asrRounded(gy, 14);
+	int32_t gy = 2 * (((int32_t)r * (int32_t)x) + ((int32_t)y * (int32_t)z));
+	gq->y = asrRounded(gy, 14);
 
-  int32_t gz = ((int32_t)r * (int32_t)r) - ((int32_t)x * (int32_t)x) - ((int32_t)y * (int32_t)y) + ((int32_t)z * (int32_t)z);
-  gq->z = asrRounded(gz, 14);
+	int32_t gz = ((int32_t)r * (int32_t)r) - ((int32_t)x * (int32_t)x) - ((int32_t)y * (int32_t)y) + ((int32_t)z * (int32_t)z);
+	gq->z = asrRounded(gz, 14);
 
-  return;
+	return;
+}
+
+Quaternion_16384 RotationQuaternion_16384::getGravity()
+{
+	Quaternion_16384 gq;
+	gq.r = 0;
+
+	int32_t gx = 2 * (((int32_t)x * (int32_t)z) - ((int32_t)r * (int32_t)y));
+	gq.x = asrRounded(gx, 14);
+
+	int32_t gy = 2 * (((int32_t)r * (int32_t)x) + ((int32_t)y * (int32_t)z));
+	gq.y = asrRounded(gy, 14);
+
+	int32_t gz = ((int32_t)r * (int32_t)r) - ((int32_t)x * (int32_t)x) - ((int32_t)y * (int32_t)y) + ((int32_t)z * (int32_t)z);
+	gq.z = asrRounded(gz, 14);
+
+	return gq;
 }
 
 /*
  * findOffsetRotation - given two vectors this calculates a rotation from one to the other.
  */
-void RotationQuaternion_16384::findOffsetRotation(Quaternion_16384 * first, Quaternion_16384 * second)
+RotationQuaternion_16384 RotationQuaternion_16384::findOffsetRotation(Quaternion_16384 * first, Quaternion_16384 * second)
 {
-  *this = *first;
-   int16_t _r = dotProduct(second);
+	RotationQuaternion_16384 result;
+    result = Quaternion_16384::crossProduct(first, second);
 
-    crossProduct(second);
-    r = _r;
+	int16_t _r = dotProduct(first, second);
+	result.r = _r + 16384;
 
-    r += 16384;
-    normalize();
+    result.normalize();
+
+	return result;
 }
 
 /*
@@ -368,20 +424,20 @@ RotationQuaternion_16384 RotationQuaternion_16384::getRotationAboutZ() {
 	// Calculate the rotation related to just xy tilt by using 'gravity'
 	Quaternion_16384 z_axis(0, 0, 0, 16384);
 	Quaternion_16384 gravity;
-	this->getGravity(&gravity);
+	gravity = this->getGravity();
 	RotationQuaternion_16384 xy_rot;
 	xy_rot.findOffsetRotation(&gravity, &z_axis);
 
 	// On the assumption that rot_xyz == rot_z * rot_xy
 	// Then rot_xyz * inv(rot_xy) == rot_z * rot_xy *inv(rot_xy) == rot_z
 	
-	xy_rot.conjugate();
+	xy_rot = Quaternion_16384::conjugate(&xy_rot);
 	RotationQuaternion_16384 z_rot; 
 	z_rot = Quaternion_16384::crossProduct(this, &xy_rot);
 	return z_rot;
 }
 
-RotationQuaternion_16384& RotationQuaternion_16384::operator=(const Quaternion_16384& rhs) {
+RotationQuaternion_16384 RotationQuaternion_16384::operator=(const Quaternion_16384 rhs) {
 	this->r = rhs.r;
 	this->x = rhs.x;
 	this->y = rhs.y;
