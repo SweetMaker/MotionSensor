@@ -1,10 +1,10 @@
 #include <Wire.h>
 #include <SweetMaker.h>
-#include <MotionSensor.h>
+#include "MotionSensor.h"
+#include "MotionProcessor.h"
 
 using namespace SweetMaker;
 
-MotionSensor motionSensor;
 
 void myEventHandler(uint16_t eventId, uint8_t src, uint16_t eventInfo);
 
@@ -17,8 +17,15 @@ const static uint8_t ms_5v_pin = 17; // A3
 const static uint8_t ms_0v_pin = 16; // A2
 
 const static uint8_t ledStripSigPin = 11;
-#endif
+#else 
+#ifdef ARDUINO_ESP32C3_DEV
+const static uint8_t ms_scl = 9;
+const static uint8_t ms_sda = 10;
+const static uint8_t ms_5v_pin = 6;
+const static uint8_t ms_0v_pin = 7;
 
+const static uint8_t ledStripSigPin = 4;
+#else
 #ifdef ARDUINO_ARCH_ESP32
 const static uint8_t ms_scl = 21;    // A5+
 const static uint8_t ms_sda = 22;    // A4
@@ -27,10 +34,15 @@ const static uint8_t ms_0v_pin = 16; // A2
 
 const static uint8_t ledStripSigPin = 27;
 #endif
+#endif
+#endif
 
 //MotionSensor::CALIBRATION cal = { -960, 602, 816, 88, 5, -7 };
-MotionSensor::CALIBRATION cal = { -655, 914, 1842, 29, 115, -1 };
-bool contCalcAccel = false;
+MotionSensor::CALIBRATION cal = { -683, 994, 1875, 34, 112, 0, MotionSensor::GAIN_UNDEFINED, MotionSensor::GAIN_UNDEFINED, MotionSensor::GAIN_UNDEFINED };
+bool contPrintAccel = false;
+bool contPrintGravity = false;
+
+MotionSensor motionSensor;
 
 void setup()
 {
@@ -117,8 +129,10 @@ void myEventHandler(uint16_t eventId, uint8_t eventRef, uint16_t eventInfo)
 		break;
 
 	case MotionSensor::MOTION_SENSOR_NEW_SMPL_RDY:
-		if(contCalcAccel)
-    		motionSensor.calcAccel();
+		motionSensor.motionProcessor.processSensorReadings(&motionSensor.sensorReadings);
+		
+		if(contPrintGravity) motionSensor.motionProcessor.processedReadings.gravity_m.printQ();
+		if(contPrintAccel)  motionSensor.motionProcessor.processedReadings.linearAccel_m.printQ();
 		break;
 
 	case SigGen::SIG_GEN_STOPPED: // A Signal Generator has been stopped
@@ -137,26 +151,94 @@ void handleSerialInput() {
 
 		switch (c) {
 		case 'a': {
-			// Calibrates the motionSensor and stores result in EEPROM
-			Serial.println("Calculate acceleration");
-			motionSensor.gravity_m.printQ();
-			motionSensor.linearAccel_m.printQ();
-			motionSensor.calcAccel();
+			contPrintAccel = !contPrintAccel;
 		}
 		break;
 
 		case 'b': {
-			contCalcAccel = !contCalcAccel;
 		}
 		break;
 
 		case 'c': {
 			// Calibrates the motionSensor and stores result in EEPROM
 			MotionSensor::CALIBRATION calibration;
-			Serial.println("MotionSensor must be level and stationary");
+			Serial.println("MotionSensor must be level and stationary with Z Axis facing up");
 			Serial.println("Starting to calibrate");
-			motionSensor.runSelfCalibrate(&calibration);
+			motionSensor.runOffsetSelfCalibrate(&calibration);
             Serial.println("Calibration complete");
+		}
+		break;
+
+		case 'd': {
+			// Displays Calibration
+			Serial.println("Display Configured Calibration");
+			motionSensor.printCalibration();
+		}
+		break;
+		
+		case 't': {
+			Serial.setTimeout(10);
+			Serial.println("Trim Calibration");
+			Serial.read(); // blank space
+			char axis = Serial.read();
+			int16_t offset = Serial.parseInt();
+			int newGain = Serial.parseInt();
+
+			Serial.print(axis); Serial.print("\t");
+			Serial.print(offset); Serial.print("\t");
+			Serial.println(newGain);
+
+			if (newGain >= 16) {
+				Serial.println("Valid gain must be less than 16");
+				break;
+			}
+
+			switch (axis) {
+			case 'x': {
+				uint8_t oldGain = motionSensor.mpu6050.getXFineGain();
+				newGain = newGain << 4 | oldGain & 0x0f;
+				motionSensor.mpu6050.setXAccelOffset(offset);
+				motionSensor.mpu6050.setXFineGain(newGain);
+			}
+					break;
+			case 'y': {
+				uint8_t oldGain = motionSensor.mpu6050.getYFineGain();
+				newGain = newGain << 4 | oldGain & 0x0f;
+				motionSensor.mpu6050.setYAccelOffset(offset);
+				motionSensor.mpu6050.setYFineGain(newGain);
+			}
+					break;
+			case 'z': {
+				uint8_t oldGain = motionSensor.mpu6050.getZFineGain();
+				newGain = newGain << 4 | oldGain & 0x0f;
+				motionSensor.mpu6050.setZAccelOffset(offset);
+				motionSensor.mpu6050.setZFineGain(newGain);
+			}
+					break;
+
+			default:
+				Serial.println("Valid axis values are x, y or z");
+				break;
+			}
+			
+		}
+		break;
+
+		case 'f': {
+			Serial.println("GetZ fine gain");
+			int newGain = Serial.parseInt();
+			int8_t gain = motionSensor.mpu6050.getZFineGain();
+			Serial.println(gain);
+			if (newGain != 0) {
+				Serial.println(newGain);
+				motionSensor.mpu6050.setZFineGain(newGain);
+			}
+		}
+				break;
+				
+
+		case 'g': {
+			contPrintGravity = !contPrintGravity;
 		}
 		break;
 
@@ -164,16 +246,58 @@ void handleSerialInput() {
 			// Configures the motionSensor rotation offset to believe it is level
 			// Stores the configuration in EEPROM
 			Serial.println("AutoLevel");
-			motionSensor.autoLevel();
+			motionSensor.motionProcessor.autoLevel();
+		}
+        break;
+
+		case 'm': {
+			int32_t ax, ay, az;
+			motionSensor.findMaximumReadings(&ax, &ay, &az);
 		}
 		break;
 
-		case 'z': {
+		case 'n': {
 			// Removes any rotation offset from the motionSensor
 			Serial.println("Clear offset");
-			motionSensor.clearOffsetRotation();
+			motionSensor.motionProcessor.clearLevelOffset();
+		}
+				break;
+
+		case 'r': {
+			Serial.println("Reset Calibration");
+			motionSensor.resetOffsetCalibration();
+		}
+				break;
+
+		case 's': {
+			Serial.println("Set Calibration");
+			Serial.setTimeout(100);
+			int axis_id = Serial.parseInt();
+			int cal_val = Serial.parseInt();
+			Serial.println(axis_id);
+			Serial.println(cal_val);
+			if (cal_val == 0) {
+				Serial.println("cal_val bad");
+				break;
+			}
+
+			if (axis_id == 0) {
+				Serial.println(cal.accelXoffset);
+				cal.accelXoffset = cal_val;
+			}
+			else if (axis_id == 1) {
+				Serial.println(cal.accelYoffset);
+				cal.accelYoffset = cal_val;
+			}
+			else if (axis_id == 2) {
+				Serial.println(cal.accelZoffset);
+				cal.accelZoffset = cal_val;
+			}
+
+			motionSensor.setCalibration(&cal);
 		}
 		break;
+
 		}
 	}
 }

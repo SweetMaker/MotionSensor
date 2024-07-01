@@ -141,10 +141,12 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\MotionProcessor.cpp" />
     <ClCompile Include="..\Quaternion_16384.cpp" />
     <ClCompile Include="quaternion-test.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\MotionProcessor.h" />
     <ClInclude Include="..\Quaternion_16384.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

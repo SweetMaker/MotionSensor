@@ -147,6 +147,7 @@
     <ClInclude Include="helper_3dmath.h" />
     <ClInclude Include="I2Cdev.h" />
     <ClInclude Include="IMotionSensor.h" />
+    <ClInclude Include="MotionProcessor.h" />
     <ClInclude Include="MotionSensor.h" />
     <ClInclude Include="Quaternion_16384.h" />
     <ClInclude Include="SM_MPU6050.h" />
@@ -155,6 +156,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="I2Cdev.cpp" />
+    <ClCompile Include="MotionProcessor.cpp" />
     <ClCompile Include="MotionSensor.cpp" />
     <ClCompile Include="Quaternion_16384.cpp" />
     <ClCompile Include="SM_MPU6050.cpp" />

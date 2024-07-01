@@ -86,7 +86,7 @@ void Quaternion_16384::crossProduct(Quaternion_16384 * s)
   this->z = asrRounded(_z, 14);
 }
 
-Quaternion_16384 Quaternion_16384::crossProduct(Quaternion_16384* a, Quaternion_16384* b) {
+Quaternion_16384 Quaternion_16384::crossProduct(const Quaternion_16384* a, const Quaternion_16384* b) {
 	int32_t _r = ((int32_t)a->r * (int32_t)b->r) - ((int32_t)a->x * (int32_t)b->x) - ((int32_t)a->y * (int32_t)b->y) - ((int32_t)a->z * (int32_t)b->z);
 	int32_t _x = ((int32_t)a->x * (int32_t)b->r) + ((int32_t)a->r * (int32_t)b->x) - ((int32_t)a->z * (int32_t)b->y) + ((int32_t)a->y * (int32_t)b->z);
 	int32_t _y = ((int32_t)a->y * (int32_t)b->r) + ((int32_t)a->z * (int32_t)b->x) + ((int32_t)a->r * (int32_t)b->y) - ((int32_t)a->x * (int32_t)b->z);
@@ -246,7 +246,11 @@ SweetMaker::RotationQuaternion_16384::RotationQuaternion_16384() : Quaternion_16
 {
 }
 
-RotationQuaternion_16384::RotationQuaternion_16384(Quaternion_16384 *q) : Quaternion_16384(q)
+RotationQuaternion_16384::RotationQuaternion_16384(Quaternion_16384* q) : Quaternion_16384(q)
+{
+}
+
+RotationQuaternion_16384::RotationQuaternion_16384(Quaternion_16384 q) : Quaternion_16384(q)
 {
 }
 
@@ -269,7 +273,7 @@ RotationQuaternion_16384::RotationQuaternion_16384(int16_t r, int16_t x, int16_t
 *    r-1 is the inverse of the rotation quaternion
 *    q is the quaternion to be rotated
 */
-Quaternion_16384 RotationQuaternion_16384::rotate(Quaternion_16384 * input_q)
+Quaternion_16384 RotationQuaternion_16384::rotate(const Quaternion_16384 * input_q)
 {
 	RotationQuaternion_16384 conj_this;
 	conj_this = Quaternion_16384::conjugate(this);
@@ -410,7 +414,8 @@ RotationQuaternion_16384 RotationQuaternion_16384::findOffsetRotation(Quaternion
     result = Quaternion_16384::crossProduct(first, second);
 
 	int16_t _r = dotProduct(first, second);
-	result.r = _r + 16384;
+	result.r = _r;
+	result.r += 16384;
 
     result.normalize();
 
@@ -419,30 +424,21 @@ RotationQuaternion_16384 RotationQuaternion_16384::findOffsetRotation(Quaternion
 
 /*
  * getRotationAboutZ - isolate rotation about z-axis from x and y
+ *                   - this is done by 
  */
 RotationQuaternion_16384 RotationQuaternion_16384::getRotationAboutZ() {
 	// Calculate the rotation related to just xy tilt by using 'gravity'
 	Quaternion_16384 z_axis(0, 0, 0, 16384);
-	Quaternion_16384 gravity;
-	gravity = this->getGravity();
-	RotationQuaternion_16384 xy_rot;
-	xy_rot.findOffsetRotation(&gravity, &z_axis);
+	Quaternion_16384 gravity = this->getGravity();
+	RotationQuaternion_16384 rot_xy = findOffsetRotation(&gravity, &z_axis);
 
 	// On the assumption that rot_xyz == rot_z * rot_xy
 	// Then rot_xyz * inv(rot_xy) == rot_z * rot_xy *inv(rot_xy) == rot_z
 	
-	xy_rot = Quaternion_16384::conjugate(&xy_rot);
+	rot_xy = Quaternion_16384::conjugate(&rot_xy);
 	RotationQuaternion_16384 z_rot; 
-	z_rot = Quaternion_16384::crossProduct(this, &xy_rot);
+	z_rot = Quaternion_16384::crossProduct(this, &rot_xy);
 	return z_rot;
-}
-
-RotationQuaternion_16384 RotationQuaternion_16384::operator=(const Quaternion_16384 rhs) {
-	this->r = rhs.r;
-	this->x = rhs.x;
-	this->y = rhs.y;
-	this->z = rhs.z;
-	return *this;
 }
 
 
@@ -489,4 +485,17 @@ int16_t Quaternion_16384::asrRounded(int32_t value, uint8_t amount)
 	}
 	value += round_offset;
 	return (int16_t)(value >> amount);
+}
+
+RotationQuaternion_16384 RotationQuaternion_16384::calcDelta(RotationQuaternion_16384* old_q, RotationQuaternion_16384* new_q) {
+	/*
+	 * Delta is calculated by taking the conjugate of the old rotation
+	 * and removing if from the new. This is effectively a subtraction
+	 */
+	RotationQuaternion_16384 old_conj;
+	old_conj = Quaternion_16384::conjugate(old_q);
+
+	RotationQuaternion_16384 delta;
+	delta = Quaternion_16384::crossProduct(&old_conj, new_q);
+	return delta;
 }
