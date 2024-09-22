@@ -3,7 +3,7 @@ MotionSensor.cpp takes an mpu6050 class and manages configuration and control
                  while integrating it into the SweetMaker framework. Presents 
 				 the output from the sensor as a SM::Quaternion_16384
 
-Copyright(C) 2017-2021  Howard James May
+Copyright(C) 2017-2024  Howard James May
 
 This file is part of the SweetMaker SDK
 
@@ -31,13 +31,17 @@ Release     Date                        Change Description
 					           - use of SM::Quaternion_16384 for processing
 					           - addition of rotation offset
 3      07-Mar-2021   Fixed calibration routine
-                     - fixed rotation offset / autoLevel
+					 - fixed rotation offset / autoLevel
+4      17-Apr-2024   - Significant Refactoring
+                     - added rotation about Z offset
+					 - added linear acceleration
 *******************************************************************************/
 
 #include <Arduino.h>
 #include "MotionSensor.h"
 #include "EventMngr.h"
 #include "SM_MPU6050_6Axis_MotionApps20.h"
+#include "string.h"
 
 using namespace SweetMaker;
 
@@ -54,6 +58,9 @@ int MotionSensor::init()
 	cal.accelXoffset = 0;
 	cal.accelYoffset = 0;
 	cal.accelZoffset = 4096;
+	cal.accelXFineGain = GAIN_UNDEFINED;
+	cal.accelYFineGain = GAIN_UNDEFINED;
+	cal.accelZFineGain = GAIN_UNDEFINED;
 	cal.gyroXoffset = 0;
 	cal.gyroYoffset = 0;
 	cal.gyroZoffset = 0;
@@ -70,16 +77,21 @@ int MotionSensor::init(CALIBRATION * calibration)
 	 * Start the Wire library - used to communicate with MPU6050
 	 */
 #ifdef ARDUINO_ARCH_AVR
-	Wire.begin();
-	TWBR = 24; // 400kHz I2C clock (200kHz if CPU is 8MHz)
+  Wire.begin();
+  TWBR = 24; // 400kHz I2C clock (200kHz if CPU is 8MHz)
 #else 
-    #ifdef ARDUINO_ARCH_ESP32
-        Serial.println("MotionSensor::Wire begin");
+#ifdef ARDUINO_ESP32C3_DEV
+  Serial.println("MotionSensor::Wire begin - dataPin 10, clkPin 9");
+  Wire.begin(10, 9, 400000L);
 
-        Wire.begin(21, 22, 400000L);
-    #else
-        #pragma message ( "MotionSensor supports either AVR or ESP32 architecures" )
-    #endif
+#else
+#ifdef ARDUINO_ARCH_ESP32
+  Serial.println("MotionSensor::Wire begin - dataPin 21, clkPin 22");
+  Wire.begin(21, 22, 400000L);
+#else
+#pragma message ( "MotionSensor supports either AVR or ESP32 architecures" )
+#endif
+#endif
 #endif
 
   Serial.println("MotionSensor::testConnection");
@@ -112,20 +124,6 @@ int MotionSensor::init(CALIBRATION * calibration)
 
 	mpu6050.setDMPEnabled(true);
 
-  /* The Delta Quarternion is initialised thus with a zero real part */
-  rotQuatDelta.r = 0;
-  rotQuatDelta.x = 0;
-  rotQuatDelta.y = 0;
-  rotQuatDelta.z = 16384;
-
-  /*
-   * Set gravity to sane, though incorrect value!
-   */
-  gravity.r = 0;
-  gravity.x = 0;
-  gravity.y = 0;
-  gravity.z = 16384;
-
   /*
    * Send indication that sensor is now ready
    */
@@ -148,18 +146,18 @@ void MotionSensor::configEventHandler(IEventHandler *eh)
 }
 
 
-/*
- * Called repeatedly by updater - allows motionSensor to process Fifo
- * and generate new sample events
- */
-void MotionSensor::update(uint16_t elapsedTime_ms)
-{
+bool MotionSensor::getLatestSensorReadings(MPU6050* mpu6050, MotionProcessor::SENSOR_READINGS* readings) {
+	if ((mpu6050 == NULL) || (readings == NULL)) {
+		EventMngr::getMngr()->handleEvent(MotionSensor::MOTION_SENSOR_RUNTIME_ERROR, 0, 1);
+		return false;
+	}
+
 	/*
 	 * Check there is a complete sample of data waiting for us
 	 */
-	uint16_t fifoCount = mpu6050.getFIFOCount();
+	uint16_t fifoCount = mpu6050->getFIFOCount();
 	if (fifoCount < MPU6050::dmpPacketSize) {
-		return;
+		return false;
 	}
 
 	/*
@@ -168,67 +166,56 @@ void MotionSensor::update(uint16_t elapsedTime_ms)
 	 */
 	if (fifoCount == 1024) {
 		// reset so we can continue cleanly
-		mpu6050.resetFIFO();
-		eventHandler->handleEvent(MotionSensor::MOTION_SENSOR_RUNTIME_ERROR, 0, 0);
-		return;
+		mpu6050->resetFIFO();
+		EventMngr::getMngr()->handleEvent(MotionSensor::MOTION_SENSOR_RUNTIME_ERROR, 0, 0);
+		return false;
 	}
 
 	/*
 	 * read a packet from FIFO and extract readings
 	 */
 	uint8_t fifoBuffer[MPU6050::dmpPacketSize];
-	mpu6050.getFIFOBytes(fifoBuffer, MPU6050::dmpPacketSize);
+	mpu6050->getFIFOBytes(fifoBuffer, MPU6050::dmpPacketSize);
 
 	int16_t raw_quarternion[4];
+	mpu6050->dmpGetQuaternion(raw_quarternion, fifoBuffer);
 
-	mpu6050.dmpGetQuaternion(raw_quarternion, fifoBuffer);
+	/*
+	 * The MPU6050 returns a rotational quaternion which represents the rotation to "real world" from "sensor" frame
+	 */
+	readings->rotationReading_rs.r = raw_quarternion[0];
+	readings->rotationReading_rs.x = raw_quarternion[1];
+	readings->rotationReading_rs.y = raw_quarternion[2];
+	readings->rotationReading_rs.z = raw_quarternion[3];
 
-  /*
-   * The MPU6050 returns a rotational quaternion
-   */
-	rawQuat.r = raw_quarternion[0];
-	rawQuat.x = raw_quarternion[1];
-	rawQuat.y = raw_quarternion[2];
-	rawQuat.z = raw_quarternion[3];
+	int16_t raw_accel_s[3];
+	mpu6050->dmpGetAccel(raw_accel_s, fifoBuffer);
+	readings->linearAcceleration_s.r = 0;
+	readings->linearAcceleration_s.x = raw_accel_s[0];
+	readings->linearAcceleration_s.y = raw_accel_s[1];
+	readings->linearAcceleration_s.z = raw_accel_s[2];
+
+	return true;
+}
 
 
-  /*
-   * If there is an offsetRotation configured then this is 
-   * applied using a crossProduct
-   */
-	RotationQuaternion_16384 newRot;
-	if (offsetRotation_xy != NULL) {
-	  newRot = Quaternion_16384::crossProduct(&rawQuat, offsetRotation_xy);
-  }
-  else {
-	  newRot = rawQuat;
-  }
+/*
+ * Called repeatedly by updater - allows motionSensor to process Fifo
+ * and generate new sample events
+ */
+void MotionSensor::update(uint16_t elapsedTime_ms)
+{
+	bool isNewReading = getLatestSensorReadings(&mpu6050, &sensorReadings);
+	if (!isNewReading)
+		return;
 
-  /* Remove horizontal z rotation after */
-  if (offsetRotation_z != NULL) {
-	  newRot = Quaternion_16384::crossProduct(offsetRotation_z, &newRot);
-  }
-
-  /*
-   * Delta is calculated by taking the conjugate of the old rotation 
-   * and removing if from the new. This is effectively a subtraction
-   */
-  rotQuatDelta = newRot;
-  rotQuat.conjugate();
-  rotQuatDelta.crossProduct(&rotQuat);
-  
-  rotQuat = newRot;
-
-  /*
-   * Now calculate gravity
-   */
-  rotQuat.getGravity(&gravity);
+	motionProcessor.processSensorReadings(&sensorReadings);
 
 	/*
 	 * Notify system a new sample is available
 	 */
-	if(eventHandler != NULL)
-	  eventHandler->handleEvent(MotionSensor::MOTION_SENSOR_NEW_SMPL_RDY, 0, 0);
+	if (eventHandler != NULL)
+		eventHandler->handleEvent(MotionSensor::MOTION_SENSOR_NEW_SMPL_RDY, 0, 0);
 
 	return;
 }
@@ -250,20 +237,39 @@ bool MotionSensor::readingAvailable()
  */
 void MotionSensor::takeSamples(SAMPLE_AVGS * sampleAvgs, uint16_t numSamples) {
 	long sum_ax = 0, sum_ay = 0, sum_az = 0, sum_gx = 0, sum_gy = 0, sum_gz = 0;
-	int16_t ax, ay, az, gx, gy, gz;
+	int16_t raw_accel_s[3];
+	int16_t raw_gyro_s[3];
 
 	for (uint16_t i = 0; i < numSamples; i++) {
 		// read raw accel/gyro measurements from device
-		while (!mpu6050.dmpPacketAvailable())
-			;
-		mpu6050.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+		while (mpu6050.dmpPacketAvailable() == false){
+		}
+			
+		uint8_t fifoBuffer[MPU6050::dmpPacketSize];
+		mpu6050.getFIFOBytes(fifoBuffer, MPU6050::dmpPacketSize);
+//		mpu6050.dmpGetAccel(raw_accel_s, fifoBuffer);
+//		mpu6050.dmpGetGyro(raw_gyro_s, fifoBuffer);
+		// Get the readings direct from the sensor not from the fifo 
+		mpu6050.getMotion6(raw_accel_s, raw_accel_s + 1, raw_accel_s + 2, raw_gyro_s, raw_gyro_s + 1, raw_gyro_s + 2);
 
-		sum_ax += ax;
-		sum_ay += ay;
-		sum_az += az;
-		sum_gx += gx;
-		sum_gy += gy;
-		sum_gz += gz;
+		sum_ax += raw_accel_s[0];
+		sum_ay += raw_accel_s[1];
+		sum_az += raw_accel_s[2];
+		sum_gx += raw_gyro_s[0];
+		sum_gy += raw_gyro_s[1];
+		sum_gz += raw_gyro_s[2];
+
+		if (i % 50 == 49) {
+			sampleAvgs->accelXAvg = sum_ax / (i+1);
+			sampleAvgs->accelYAvg = sum_ay / (i+1);
+			sampleAvgs->accelZAvg = sum_az / (i+1);
+			sampleAvgs->gyroXAvg = sum_gx / (i+1);
+			sampleAvgs->gyroYAvg = sum_gy / (i+1);
+			sampleAvgs->gyroZAvg = sum_gz / (i+1);
+
+			Serial.print("50 ");
+			printSamples(sampleAvgs);
+		}
 	}
 
 	sampleAvgs->accelXAvg = sum_ax / numSamples;
@@ -274,212 +280,215 @@ void MotionSensor::takeSamples(SAMPLE_AVGS * sampleAvgs, uint16_t numSamples) {
 	sampleAvgs->gyroZAvg = sum_gz / numSamples;
 }
 
+
+void MotionSensor::printCalibration(CALIBRATION* calibration) {
+	Serial.print("Calibration: \tx:");
+	Serial.print(calibration->accelXoffset);
+	Serial.print("\ty:");
+	Serial.print(calibration->accelYoffset);
+	Serial.print("\tz:");
+	Serial.print(calibration->accelZoffset);
+	Serial.print("\ttx:");
+	Serial.print(calibration->accelXFineGain);
+	Serial.print("\tty:");
+	Serial.print(calibration->accelYFineGain);
+	Serial.print("\ttz:");
+	Serial.print(calibration->accelZFineGain);
+	Serial.print("\tgx:");
+	Serial.print(calibration->gyroXoffset);
+	Serial.print("\tgy:");
+	Serial.print(calibration->gyroYoffset);
+	Serial.print("\tgz:");
+	Serial.println(calibration->gyroZoffset);
+}
+
+void MotionSensor::printCalibration() {
+	Serial.print("Calibration: \tax:");
+	Serial.print(mpu6050.getXAccelOffset());
+	Serial.print("\tay:");
+	Serial.print(mpu6050.getYAccelOffset());
+	Serial.print("\taz:");
+	Serial.print(mpu6050.getZAccelOffset());
+	Serial.print("\ttx:");
+	Serial.print(mpu6050_getXFineGain_accel());
+	Serial.print("\tty:");
+	Serial.print(mpu6050_getYFineGain_accel());
+	Serial.print("\ttz:");
+	Serial.print(mpu6050_getZFineGain_accel());
+	Serial.print("\tgx:");
+	Serial.print(mpu6050.getXGyroOffset());
+	Serial.print("\tgy:");
+	Serial.print(mpu6050.getYGyroOffset());
+	Serial.print("\tgz:");
+	Serial.println(mpu6050.getZGyroOffset());
+}
+
+void MotionSensor::printSamples(SAMPLE_AVGS* sample_avgs) {
+	Serial.print("Samples: \tx:");
+	Serial.print(sample_avgs->accelXAvg);
+	Serial.print("\ty:");
+	Serial.print(sample_avgs->accelYAvg);
+	Serial.print("\tz:");
+	Serial.print(sample_avgs->accelZAvg);
+	Serial.print("\tgx:");
+	Serial.print(sample_avgs->gyroXAvg);
+	Serial.print("\tgy:");
+	Serial.print(sample_avgs->gyroYAvg);
+	Serial.print("\tgz:");
+	Serial.println(sample_avgs->gyroZAvg);
+}
+
+void MotionSensor::findMaximumReadings(int32_t *ax, int32_t *ay, int32_t*az) {
+	SAMPLE_AVGS current_samples;
+	Serial.println("findMaximumReadings");
+
+	*ax = 0;
+	*ay = 0;
+	*az = 0;
+
+	for (int i = 0; i < 100; i++) {
+
+		takeSamples(&current_samples, 10);
+		printSamples(&current_samples);
+
+		if (abs(current_samples.accelXAvg) > abs(*ax))
+			*ax = current_samples.accelXAvg;
+
+		if (abs(current_samples.accelYAvg) > abs(*ay))
+			*ay = current_samples.accelYAvg;
+
+		if (abs(current_samples.accelZAvg) > abs(*az))
+			*az = current_samples.accelZAvg;
+	}
+	Serial.print("Max Values:\t");
+	Serial.print(*ax); Serial.print("\t");
+	Serial.print(*ay); Serial.print("\t");
+	Serial.println(*az);
+}
+
 /*
- * runSelfCalibrate - iteratively conveges on a set of calibration 
- *                    values by trying values and slowly modifying them
+ * calibrateOffsetSingleAxis - iteratively conveges on a offset calibration
+ *                            value by trying values and slowly modifying them
  */
-int MotionSensor::runSelfCalibrate(CALIBRATION * calibration) {
+int MotionSensor::calibrateOffsetSingleAxis(CALIBRATION* calibration, int axis_id, uint16_t maxVal) {
 	SAMPLE_AVGS sample_avgs;
-	const uint16_t num_samples = 1000;     //Amount of readings used to average, make it higher to get more precision but sketch will be slower  (default:1000)
+	const uint16_t num_samples = 200;     //Amount of readings used to average, make it higher to get more precision but sketch will be slower  (default:1000)
+	const int16_t accel_target_accuracy = 8;     //Acelerometer error allowed, make it lower to get more precision, but sketch may not converge  (default:8)
+	const int16_t giro_target_accuracy = 1;     //Giro error allowed, make it lower to get more precision, but sketch may not converge  (default:1)
 
+	int16_t expectedAccelX = 0;
+	int16_t expectedAccelY = 0;
+	int16_t expectedAccelZ = 0;
 
-	calibration->accelXoffset = 0;
-	calibration->accelYoffset = 0;
-	calibration->accelZoffset = 0;
+	Serial.println("MotionSensor::calibrateOffsetSingleAxis");
+
+	if (axis_id == 0) expectedAccelX = maxVal;
+	if (axis_id == 1) expectedAccelY = maxVal;
+	if (axis_id == 2) expectedAccelZ = maxVal;
+	if (axis_id == 3) expectedAccelX = -maxVal;
+	if (axis_id == 4) expectedAccelY = -maxVal;
+	if (axis_id == 5) expectedAccelZ = -maxVal;
+
+	calibration->accelXoffset = expectedAccelX/ 8;
+	calibration->accelYoffset = expectedAccelY/ 8;
+	calibration->accelZoffset = expectedAccelZ/ 8;
 	calibration->gyroXoffset = 0;
 	calibration->gyroYoffset = 0;
 	calibration->gyroZoffset = 0;
 
-	setCalibration(calibration);
-
-	/*
-	* Delay 10 seconds by taking 1000 samples.
-	* This is to ensure sensor has settled down
-	*/
-	for (uint16_t i = 0; i < 1000; i++) {
-		int16_t ax, ay, az, gx, gy, gz;
-		while (!mpu6050.dmpPacketAvailable())
-			;
-		mpu6050.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
-	}
-
-	Serial.println("Initial Samples");
-
-	takeSamples(&sample_avgs, num_samples);
-
-	calibration->accelXoffset = -sample_avgs.accelXAvg / 8;
-	calibration->accelYoffset = -sample_avgs.accelYAvg / 8;
-	calibration->accelZoffset = (16384 - sample_avgs.accelZAvg) / 8;
-
-	calibration->gyroXoffset = -sample_avgs.gyroXAvg / 4;
-	calibration->gyroYoffset = -sample_avgs.gyroYAvg / 4;
-	calibration->gyroZoffset = -sample_avgs.gyroZAvg / 4;
-
 	bool finished = false;
 	while (!finished) {
-		const int16_t acel_deadzone = 8;     //Acelerometer error allowed, make it lower to get more precision, but sketch may not converge  (default:8)
-		const int16_t giro_deadzone = 1;     //Giro error allowed, make it lower to get more precision, but sketch may not converge  (default:1)
-
 		setCalibration(calibration);
-
-		Serial.print(calibration->accelXoffset);
-		Serial.print("\t");
-		Serial.print(calibration->accelYoffset);
-		Serial.print("\t");
-		Serial.print(calibration->accelZoffset);
-		Serial.print("\t");
-		Serial.print(calibration->gyroXoffset);
-		Serial.print("\t");
-		Serial.print(calibration->gyroYoffset);
-		Serial.print("\t");
-		Serial.print(calibration->gyroZoffset);
-		Serial.print("\t");
-		Serial.println("\t");
-
-		Serial.println("Taking More Samples");
-
+		printCalibration(calibration);
+		takeSamples(&sample_avgs, 300);
 		takeSamples(&sample_avgs, num_samples);
+		printSamples(&sample_avgs);
 
-		Serial.print(sample_avgs.accelXAvg);
-		Serial.print("\t");
-		Serial.print(sample_avgs.accelYAvg);
-		Serial.print("\t");
-		Serial.print(sample_avgs.accelZAvg);
-		Serial.print("\t");
-		Serial.print(sample_avgs.gyroXAvg);
-		Serial.print("\t");
-		Serial.print(sample_avgs.gyroYAvg);
-		Serial.print("\t");
-		Serial.print(sample_avgs.gyroZAvg);
-		Serial.print("\t");
-		Serial.println("\t");
+		int16_t accelXDelta = sample_avgs.accelXAvg - expectedAccelX;
+		int16_t accelYDelta = sample_avgs.accelYAvg - expectedAccelY;
+		int16_t accelZDelta = sample_avgs.accelZAvg - expectedAccelZ;
+
+		Serial.print("Deltas:\t\tx:"); Serial.print(accelXDelta); Serial.print("\ty:"); Serial.print(accelYDelta); Serial.print("\tz:"); Serial.println(accelZDelta);
 
 		finished = true;
-		if (abs(sample_avgs.accelXAvg) > acel_deadzone) {
+		if (abs(accelXDelta) > accel_target_accuracy) {
 			finished = false;
-			calibration->accelXoffset -= sample_avgs.accelXAvg / acel_deadzone;
+			calibration->accelXoffset -= accelXDelta / 9;
 		}
 
-		if (abs(sample_avgs.accelYAvg) > acel_deadzone) {
+		if (abs(accelYDelta) > accel_target_accuracy) {
 			finished = false;
-			calibration->accelYoffset -= sample_avgs.accelYAvg / acel_deadzone;
+			calibration->accelYoffset -= accelYDelta / 9;
 		}
 
-		if (abs(16384 - sample_avgs.accelZAvg) > acel_deadzone) {
+		if (abs(accelZDelta) > accel_target_accuracy) {
 			finished = false;
-			calibration->accelZoffset += (16384 - sample_avgs.accelZAvg) / acel_deadzone;
+			calibration->accelZoffset -= accelZDelta / 9;
 		}
 
-		if (abs(sample_avgs.gyroXAvg) > giro_deadzone) {
+		if (abs(sample_avgs.gyroXAvg) > giro_target_accuracy) {
 			finished = false;
-			calibration->gyroXoffset -= sample_avgs.gyroXAvg / (giro_deadzone + 1);
+			calibration->gyroXoffset -= 2* sample_avgs.gyroXAvg;
 		}
 
-		if (abs(sample_avgs.gyroYAvg) > giro_deadzone) {
+		if (abs(sample_avgs.gyroYAvg) > giro_target_accuracy) {
 			finished = false;
-			calibration->gyroYoffset -= sample_avgs.gyroYAvg / (giro_deadzone + 1);
+			calibration->gyroYoffset -= 2* sample_avgs.gyroYAvg;
 		}
 
-		if (abs(sample_avgs.gyroZAvg) > giro_deadzone) {
+		if (abs(sample_avgs.gyroZAvg) > giro_target_accuracy) {
 			finished = false;
-			calibration->gyroZoffset -= sample_avgs.gyroZAvg / (giro_deadzone + 1);
+			calibration->gyroZoffset -= 2*sample_avgs.gyroZAvg;
 		}
 	}
 	return(0);
 }
 
 /*
- * autoLevel - this finds the rotationOffset needed to adjust an MPU6050
- *             which is not level (with Z upwards) so that it behaves as if it is.
- *
- *             This is achieved by finding gravity and calculating the rotation
- *             from this to the Z axis.
+ * runOffsetSelfCalibrate - iteratively converges on a set of offset calibration 
+ *                          values by trying values and slowly modifying them
  */
-void MotionSensor::autoLevel()
-{
-  if (offsetRotation_xy)
-    clearOffsetRotation();
+int MotionSensor::runOffsetSelfCalibrate(CALIBRATION * calibration) {
+	calibration->accelXoffset = 0;
+	calibration->accelYoffset = 0;
+	calibration->accelZoffset = 0;
+	calibration->gyroXoffset = 0;
+	calibration->gyroYoffset = 0;
+	calibration->gyroZoffset = 0;
+	calibration->accelXFineGain = GAIN_UNDEFINED;
+	calibration->accelYFineGain = GAIN_UNDEFINED;
+	calibration->accelZFineGain = GAIN_UNDEFINED;
 
-  RotationQuaternion_16384 offsetQ;
-  Quaternion_16384 zAxis(0,0,0,16384);
-  Quaternion_16384 gq;
+	setOffsetCalibration(calibration);
 
-  rotQuat.getGravity(&gq);
-  offsetQ.findOffsetRotation(&zAxis, &gq);
+	/*
+	* Delay 10 seconds by taking 1000 samples.
+	* This is to ensure sensor has settled down
+	*/
+	Serial.println("Waiting 10s for sensor to settle");
+	SAMPLE_AVGS sample_avgs;
+	takeSamples(&sample_avgs, 1000);
 
-  setOffsetRotation(&offsetQ);
-}
+	Serial.println("Starting calibration");
 
-/*
- * setOffsetRotation - configures new offset rotation to given value
- *                     this also updates current rotation
- */
-void MotionSensor::setOffsetRotation(RotationQuaternion_16384 * input)
-{
-	if (offsetRotation_xy)
-		clearOffsetRotation();
-
-	offsetRotation_xy = new RotationQuaternion_16384(input);
-	rotQuat.crossProduct(offsetRotation_xy);
-}
-
-/*
- * This adds an additional rotational offset to set rotation about vertical to zero
- */
-void MotionSensor::resetHorizontalOrientation() {
-	RotationQuaternion_16384 rot = (RotationQuaternion_16384)rawQuat;
-
-	if (offsetRotation_xy != NULL) {
-		rot = Quaternion_16384::crossProduct(&rawQuat, offsetRotation_xy);
-	}
-
-	RotationQuaternion_16384 rot_z = rot.getRotationAboutZ();
-	rot_z.conjugate();
-
-	offsetRotation_z = new RotationQuaternion_16384(rot_z);
-}
-
-
-/*
- * clearOffsetRotation - clears offset rotation
- *                       also clears current offset
- */
-void MotionSensor::clearOffsetRotation()
-{
-	if (offsetRotation_xy) {
-		delete offsetRotation_xy;
-		offsetRotation_xy = NULL;
-	}
-
-	rotQuat = rawQuat;
-	if (offsetRotation_z) {
-		rotQuat = RotationQuaternion_16384::crossProduct(offsetRotation_z, &rotQuat);
-	}
-}
-
-/*
- * clearHorizontalOrientation - clears offset rotation
- *                              also clears current offset
- */
-void MotionSensor::clearHorizontalOrientation()
-{
-	if (offsetRotation_z) {
-		delete offsetRotation_z;
-		offsetRotation_z = NULL;
-	}
-
-	if (offsetRotation_xy != NULL) {
-		rotQuat = Quaternion_16384::crossProduct(&rawQuat, offsetRotation_xy);
-	}
-	else {
-		rotQuat = rawQuat;
-	}
+	// This actually just performs Z axis calibration
+	calibrateOffsetSingleAxis(calibration, 2, 16384);
+	return(0);
 }
 
 /*
  * setCalibration - sets calibration values in MPU6050
  */
-void MotionSensor::setCalibration(CALIBRATION * calibration)
+void MotionSensor::setCalibration(CALIBRATION* calibration)
+{
+	setOffsetCalibration(calibration);
+	setGainCalibration(calibration);
+}
+
+/*
+ * setCalibration - sets calibration values in MPU6050
+ */
+void MotionSensor::setOffsetCalibration(CALIBRATION* calibration)
 {
 	// Set Offsets for this chip instance
 	mpu6050.setXGyroOffset(calibration->gyroXoffset);
@@ -491,4 +500,74 @@ void MotionSensor::setCalibration(CALIBRATION * calibration)
 	mpu6050.setZAccelOffset(calibration->accelZoffset);
 }
 
+/*
+ * setCalibration - sets calibration values in MPU6050
+ */
+void MotionSensor::setGainCalibration(CALIBRATION* calibration)
+{
+	if (calibration->accelXFineGain != GAIN_UNDEFINED)
+		mpu6050_setXFineGain_accel(calibration->accelXFineGain);
+	if (calibration->accelYFineGain != GAIN_UNDEFINED)
+		mpu6050_setYFineGain_accel(calibration->accelYFineGain);
+	if (calibration->accelZFineGain != GAIN_UNDEFINED)
+		mpu6050_setZFineGain_accel(calibration->accelZFineGain);
+}
+
+void MotionSensor::resetOffsetCalibration() {
+	// Set Offsets for this chip instance
+	mpu6050.setXGyroOffset(0);
+	mpu6050.setYGyroOffset(0);
+	mpu6050.setZGyroOffset(0);
+
+	mpu6050.setXAccelOffset(0);
+	mpu6050.setYAccelOffset(0);
+	mpu6050.setZAccelOffset(0);
+}
+
+void MotionSensor::printSamples() {
+	SAMPLE_AVGS sample_avgs;
+	const uint16_t num_samples = 1000;     //Amount of readings used to average, make it higher to get more precision but sketch will be slower  (default:1000)
+	takeSamples(&sample_avgs, num_samples);
+
+	Serial.println(sample_avgs.accelXAvg);
+	Serial.println(sample_avgs.accelYAvg);
+	Serial.println(sample_avgs.accelZAvg);
+}
+
+/* 
+ * The fineGain register holds two 4 bit signed values. The top for accel, the lower for gyro trim.
+ * 
+ */
+int8_t MotionSensor::mpu6050_getXFineGain_accel()
+{
+	return (mpu6050.getXFineGain() >> 4);
+}
+
+int8_t MotionSensor::mpu6050_getYFineGain_accel()
+{
+	return (mpu6050.getYFineGain() >> 4);
+}
+
+int8_t MotionSensor::mpu6050_getZFineGain_accel()
+{
+	return (mpu6050.getZFineGain() >> 4);
+}
+
+void MotionSensor::mpu6050_setXFineGain_accel(int8_t gain) {
+	uint8_t oldGain = mpu6050.getXFineGain();
+	gain = gain << 4 | oldGain & 0x0f;
+	mpu6050.setXFineGain(gain);
+}
+
+void MotionSensor::mpu6050_setYFineGain_accel(int8_t gain) {
+	uint8_t oldGain = mpu6050.getYFineGain();
+	gain = gain << 4 | oldGain & 0x0f;
+	mpu6050.setYFineGain(gain);
+}
+
+void MotionSensor::mpu6050_setZFineGain_accel(int8_t gain) {
+	uint8_t oldGain = mpu6050.getZFineGain();
+	gain = gain << 4 | oldGain & 0x0f;
+	mpu6050.setZFineGain(gain);
+}
 

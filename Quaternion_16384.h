@@ -36,6 +36,7 @@ Release     Date                        Change Description
 
 #include <stdint.h>
 
+
 namespace SweetMaker {
 
 	class Quaternion_16384 {
@@ -50,9 +51,11 @@ namespace SweetMaker {
 		Quaternion_16384(Quaternion_16384 * q);
 
 		void crossProduct(Quaternion_16384* q);
-		static Quaternion_16384 crossProduct(Quaternion_16384* a, Quaternion_16384* b);
+		static Quaternion_16384 crossProduct(const Quaternion_16384* a, const Quaternion_16384* b);
 		int16_t dotProduct(Quaternion_16384 * q);
+		static int16_t dotProduct(Quaternion_16384* a, Quaternion_16384* b);
 		void conjugate();
+		static Quaternion_16384 conjugate(Quaternion_16384 *);
 		void normalize();
         void printQ(void);
 	    static int16_t asr(int32_t value, uint8_t amount);
@@ -61,19 +64,22 @@ namespace SweetMaker {
 		uint32_t getMagnitude();
 
 		const static int32_t unit_scale_factor = 0x4000;
+		Quaternion_16384& operator-(const Quaternion_16384& rhs);
+		Quaternion_16384& operator+(const Quaternion_16384& rhs);
 	};
 
 	class RotationQuaternion_16384 : public Quaternion_16384
 	{
 	public:
 		RotationQuaternion_16384();
-		RotationQuaternion_16384(Quaternion_16384 *q);
+		RotationQuaternion_16384(Quaternion_16384* q);
+		RotationQuaternion_16384(Quaternion_16384 q);
 		RotationQuaternion_16384(int16_t r, int16_t x, int16_t y, int16_t z);
 		RotationQuaternion_16384(float angle, int16_t x, int16_t y, int16_t z);
 
-		void rotate(Quaternion_16384 * q);
-        void getGravity(Quaternion_16384* gq);
-        void findOffsetRotation(Quaternion_16384* first, Quaternion_16384 * second);
+		Quaternion_16384 rotate(const Quaternion_16384 * q);
+		void getGravity(Quaternion_16384* gq);
+		Quaternion_16384 getGravity();
 	    RotationQuaternion_16384 getRotationAboutZ();
 
 		int16_t getSinRotX();
@@ -86,7 +92,10 @@ namespace SweetMaker {
 		int16_t getRotY();
 		int16_t getRotZ();
 
-		RotationQuaternion_16384& operator=(const Quaternion_16384 &rhs);
+		static RotationQuaternion_16384 findOffsetRotation(Quaternion_16384* first, Quaternion_16384* second);
+		static RotationQuaternion_16384 calcDelta(RotationQuaternion_16384* from, RotationQuaternion_16384* to);
+
+	//	RotationQuaternion_16384 operator=(const Quaternion_16384 rhs);
 	};
 
 }

@@ -41,6 +41,7 @@ Release     Date                        Change Description
 #include "SM_MPU6050.h"
 #include "Wire.h"
 #include "Quaternion_16384.h"
+#include "MotionProcessor.h"
 
 //#define DEBUG
 
@@ -70,7 +71,12 @@ namespace SweetMaker {
             int16_t gyroXoffset;
             int16_t gyroYoffset;
             int16_t gyroZoffset;
+            int8_t accelXFineGain;
+            int8_t accelYFineGain;
+            int8_t accelZFineGain;
         }CALIBRATION;
+
+        const static int8_t GAIN_UNDEFINED = INT8_MAX;
 
         const static uint16_t gravity_mm_ss = 9810;
 
@@ -85,27 +91,20 @@ namespace SweetMaker {
         void configEventHandler(IEventHandler* eventHandler);
 
         /*
-         * The MP6050 may not be mounted flat. These routines allow an offset
-         * to compensate for this. Either a RotationQuaternion can be supplied
-         * or the MPU6050's calculation of Gravity can be used to auto level.
-         *
-         * Note autolevel will only work after the MotionSensor has finished starting
-         * up and has been properly callibrated.
-         */
-        void autoLevel();
-        void setOffsetRotation(RotationQuaternion_16384* q);
-        void clearOffsetRotation(); // including autoLevel;
-        void resetHorizontalOrientation();
-        void clearHorizontalOrientation();
-
-        /*
          * This generates calibration values for MPU6050.
          * The MPU6050 should be flat, stationary and with the Z axis upmost
          * It should remain in this position until calibration is complete
          *
          * Note: Calibration values for an MPU6050 instance don't change
          */
-        int runSelfCalibrate(CALIBRATION* calibration);
+        int runOffsetSelfCalibrate(CALIBRATION* calibration);
+        int calibrateOffsetSingleAxis(CALIBRATION* calibration, int axis_id, uint16_t maxVal);
+        void findMaximumReadings(int32_t* ax, int32_t* ay, int32_t* az);
+        void setCalibration(CALIBRATION* calibration);
+        void setOffsetCalibration(CALIBRATION* calibration);
+        void resetOffsetCalibration();
+
+        void setGainCalibration(CALIBRATION* calibration);
 
         bool readingAvailable();
 
@@ -114,39 +113,14 @@ namespace SweetMaker {
          */
         void update(uint16_t elapsedTime_ms);
 
-        /*
-         * Current offsetRotation - if any
-         */
-        RotationQuaternion_16384* offsetRotation_xy = NULL;
-        RotationQuaternion_16384* offsetRotation_z = NULL;
-
-        /*
-         * Raw rotation direct from the sensor
-         */
-        RotationQuaternion_16384 rawQuat;
-        /*
-         * Current rotation (following any offset)
-         */
-        RotationQuaternion_16384 rotQuat;
-
-        /*
-         * Rotation delta -can be helpful
-         */
-        RotationQuaternion_16384 rotQuatDelta;
-
-        /*
-         * Gravity - offset relative to gravity
-         */
-        Quaternion_16384 gravity;
-
-        /*
-         * raw linear acceleration values;
-         */
-        int16_t linearAccel[3];
+        MotionProcessor::SENSOR_READINGS sensorReadings;
+        MotionProcessor motionProcessor;
+        void printCalibration();
+        static void printCalibration(CALIBRATION* calibration);
+        MPU6050 mpu6050;
 
     private:
         IEventHandler* eventHandler;
-        MPU6050 mpu6050;
 
         typedef struct sample_avgs {
             int32_t accelXAvg;
@@ -158,7 +132,17 @@ namespace SweetMaker {
         }SAMPLE_AVGS;
 
         void takeSamples(SAMPLE_AVGS* sample_avgs, uint16_t num_samples);
-        void setCalibration(CALIBRATION* calibration);
+        static void printSamples(SAMPLE_AVGS* samples);
+
+        bool getLatestSensorReadings(MPU6050* mpu6050, MotionProcessor::SENSOR_READINGS* readings);
+        void printSamples();
+
+        int8_t mpu6050_getXFineGain_accel();
+        int8_t mpu6050_getYFineGain_accel();
+        int8_t mpu6050_getZFineGain_accel();
+        void mpu6050_setXFineGain_accel(int8_t gain);
+        void mpu6050_setYFineGain_accel(int8_t gain);
+        void mpu6050_setZFineGain_accel(int8_t gain);
     };
 };
 #endif
